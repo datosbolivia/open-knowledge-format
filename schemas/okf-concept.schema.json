@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openknowledgeformat.org/v0.2/concept.schema.json",
+  "title": "OKF v0.2 Concept Frontmatter Schema",
+  "description": "JSON Schema for validating Open Knowledge Format (OKF) concept frontmatter",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Concept type discriminator",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable concept title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Single-line summary of the concept"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Categorization and search tags"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last update"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "stable", "deprecated", "experimental"],
+      "default": "stable"
+    },
+    "skos": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uri"
+      },
+      "description": "Ontological URIs linking to SKOS, Wikidata or Schema.org"
+    },
+    "dimensions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "OLAP dimensions available for filtering"
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "path"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["datapackage", "dcat", "openapi", "cwl", "cli_tool"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string" }
+            }
+          }
+        },
+        "transformations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tool"],
+            "properties": {
+              "tool": { "type": "string" },
+              "type": { "type": "string" },
+              "hash": {
+                "type": "string",
+                "pattern": "^sha256:[a-fA-F0-9]{64}$"
+              }
+            }
+          }
+        },
+        "version": { "type": "string" },
+        "updated_at": { "type": "string" }
+      }
+    },
+    "policy": {
+      "type": "string",
+      "enum": ["allow_all", "zero_microdata", "deny"],
+      "default": "allow_all"
+    }
+  },
+  "additionalProperties": true
+}

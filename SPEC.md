@@ -1004,3 +1004,126 @@ Gross profit by segment per the cost-allocation standard.[^cost-alloc]
 
 [^cost-alloc]: Cost allocation standard
 ```
+
+---
+
+## 13. Open Data Knowledge Format (ODKF v0.2) Extension
+
+ODKF (Open Data Knowledge Format) is the normative extension of OKF v0.2 for sovereign DataMesh architectures, federated analytical catalogs, and verifiable data products. While core OKF focuses on human-and-agent readable concepts, ODKF bridges contextual narratives directly with strict syntactic schemas (**Frictionless DataPackage**, **W3C DCAT**, **OpenAPI**, and **CWL CommandLineTool**).
+
+### 13.1 Philosophy & Zero-Microdata Principle
+
+1. **Sovereignty without Central Registries:** If you can `cat` a markdown file and `git clone` a repository, you can operate an ODKF catalog.
+2. **Zero-Microdata by Design:** Public knowledge nodes and catalogs publish documentation, schemas, dimensions, and contracts. Heavy physical data resides externally or behind access controls. Non-authenticated queries are restricted to aggregate statistics (`COUNT`, `SUM`, `AVG`, `GROUP BY`).
+3. **Decoupled Syntactic Execution:** Concept files (`index.md`) provide narrative, lineage, and semantic anchors. Contracts (`contracts:`) point to standard machine-actionable schemas.
+
+### 13.2 Frontmatter Specification for ODKF Concepts
+
+In addition to core OKF fields, an ODKF concept document (`type: dataset`, `service`, `indicator`, `catalog`, or `playbook`) supports the following normative fields:
+
+```yaml
+---
+# --- Core OKF Fields (§4.1) ---
+type: dataset                          # REQUIRED. Concept type
+title: Electoral Atlas of Bolivia      # RECOMMENDED. Human-readable title
+description: Official voting statistics# RECOMMENDED. Single-line summary
+tags: [demography, elections, census]  # OPTIONAL. Categorization tags
+timestamp: 2026-05-01T00:00:00Z       # OPTIONAL. Last modified ISO 8601
+
+# --- Semantic Anchors (ODKF v0.2) ---
+skos:                                  # RECOMMENDED for datasets. Ontological URIs
+  - http://www.wikidata.org/entity/Q39825    # Census / Election
+  - https://schema.org/GovernmentData
+
+dimensions:                            # OPTIONAL. Analytical dimensions for OLAP slicing
+  - departamento
+  - municipio
+  - año
+
+# --- Syntactic Contracts (ODKF v0.2) ---
+contracts:                             # REQUIRED for active data and service concepts
+  - type: datapackage                  # Frictionless DataPackage / Table Schema
+    path: datapackage.yaml
+  - type: openapi                      # REST API endpoints (OpenAPI v3 / Springdoc)
+    path: https://api.gob.bo/v3/api-docs
+  - type: cwl                          # Executable batch tasks / pipelines
+    path: tasks/clean_data.cwl
+
+# --- Lineage & Cryptographic Integrity (ODKF v0.2) ---
+lineage:
+  source:
+    - url: https://raw.source.gob.bo/censo_raw.csv
+  transformations:
+    - tool: scripts/clean_data.py
+      type: script
+      hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  version: 1.0.0
+  updated_at: 2026-05-01T12:00:00Z
+
+# --- Governance Policy (ODKF v0.2) ---
+policy: allow_all                      # allow_all | zero_microdata | deny
+---
+```
+
+### 13.3 Supported Syntactic Contract Types
+
+| Contract `type` | Specification Standard | Purpose |
+| :--- | :--- | :--- |
+| `datapackage` | Frictionless DataPackage (v1 / v2) | Tabular schemas, typed columns, constraints, foreign keys, CSV dialect. |
+| `dcat` | W3C DCAT (v2 / v3), DCAT-AP | Public sector metadata distributions, multipart files, access URLs. |
+| `openapi` | OpenAPI v3.0 / v3.1, Swagger | HTTP REST endpoints, parameters, JSON schemas for request/response. |
+| `cwl` / `cli_tool`| Common Workflow Language `CommandLineTool` | Reproducible batch pipelines, CLI invocation arguments, outputs. |
+
+### 13.4 Canonical Triad Addressing
+
+ODKF v0.2 mandates a sovereign, universal resource addressing scheme:
+
+```
+[catalog]:[dataset]:[resource]
+```
+
+Or path-equivalent notation:
+
+```
+[catalog]/[dataset]/[resource]
+```
+
+- **`catalog`**: Sovereign namespace identifier (e.g., `bolivia`, `air_quality`, `p2p-bob-exchange`).
+- **`dataset`**: Node directory or concept identifier within the catalog.
+- **`resource`**: Specific physical table or file declared in the concept's `datapackage` or `dcat` contract.
+
+Engines MUST accept both single-quoted `'bolivia:elecciones:votos'` and double-quoted `"bolivia:elecciones:votos"` in SQL queries, transparently mapping them to resolved paths.
+
+### 13.5 Conformance Invariants (PE1-PE5, OE1-OE5)
+
+#### Producer Invariants (PE1 - PE5)
+
+- **PE1 (Markdown + YAML):** Every concept file MUST be valid UTF-8 Markdown beginning with a YAML frontmatter delimited by `---`.
+- **PE2 (Mandatory `type`):** The frontmatter MUST include a non-empty `type` string.
+- **PE3 (Reserved Files Integrity):** `index.md` and `log.md` MUST NOT define single-concept frontmatters; they serve directory listing and update chronologies.
+- **PE4 (Syntactic Contracts Validity):** If `contracts` is specified, each item MUST declare a valid `type` and an accessible `path` (relative local path or absolute HTTP/HTTPS URI).
+- **PE5 (Cryptographic Hash Integrity):** All declared hashes in `lineage.transformations[].hash` MUST follow the format `sha256:<hex64>` and match the computed SHA-256 digest of the referenced tool.
+
+#### Consumer Invariants (OE1 - OE5)
+
+- **OE1 (Graceful Progressive Disclosure):** Consumers MUST be capable of parsing concept metadata from frontmatter alone without reading the entire body.
+- **OE2 (Format Heterogeneity Tolerance):** Consumers MUST resolve tabular resources regardless of whether the physical target is CSV, TSV, Parquet, or JSON.
+- **OE3 (Zero-Microdata Enforcement):** If a concept or resource declares `policy: zero_microdata`, consumers MUST refuse unauthenticated raw row-level scans (`SELECT *`) and permit only aggregate projections (`COUNT`, `AVG`, `SUM`, `MIN`, `MAX`, `GROUP BY`).
+- **OE4 (Canonical Triad Resolution):** Consumers MUST parse both colon (`:`) and slash (`/`) separated triad formats and resolve them via local workspace files or remote catalogs.
+- **OE5 (Air-Gapped / Offline Fallback):** When operating offline, consumers MUST resolve datasets using local cache (`~/.datamesh/cache`) without failing due to unavailable remote network endpoints.
+
+---
+
+## 14. Validation Specification & Rule Engine
+
+A conforming OKF/ODKF validator MUST execute the following rule suite and report violations with severity (`ERROR` vs `WARNING`):
+
+1. **RULE-01 (Syntax):** Parse YAML frontmatter. Failure is an `ERROR`.
+2. **RULE-02 (Type Existence):** Missing `type` in frontmatter is an `ERROR`.
+3. **RULE-03 (Semantic Anchors):** If `type == 'dataset'`, missing `skos` generates a `WARNING`; invalid URI syntax in `skos` is an `ERROR`.
+4. **RULE-04 (Contract Structure):** Each entry in `contracts` must be a map with `type` and `path`. Unrecognized contract types produce a `WARNING`. Non-existent local file paths produce an `ERROR`.
+5. **RULE-05 (Hash Format):** Hashes in `lineage` must conform to `^sha256:[a-fA-F0-9]{64}$`. Non-conformity is an `ERROR`.
+6. **RULE-06 (Policy Enum):** Value of `policy` must be one of `allow_all`, `zero_microdata`, `deny`. Other values produce an `ERROR`.
+7. **RULE-07 (Bundle Structure):** A bundle directory must contain at least one `.md` concept. Circular links between concepts produce an `ERROR`.
+8. **RULE-08 (Triad Syntax):** A canonical triad must have 2 or 3 components matching `^[a-zA-Z0-9_\-\.]+:[a-zA-Z0-9_\-\. ]+(:[a-zA-Z0-9_\-\. ]+)?$`. Invalid format is an `ERROR`.
+
