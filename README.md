@@ -19,10 +19,9 @@
 >   files into context, a search index, or a graph viewer like the one
 >   bundled in this repo.
 >
-> The agent below is a **proof of concept** demonstrating *one* way to
-> produce OKF bundles automatically. The format itself is the
-> contribution; this agent and the visualizer exist to make the format
-> tangible at both ends — production and consumption.
+> The specification is complemented by a **native Domain-Driven Design (DDD) Go core**
+> in [`src/`](src/), providing high-performance validation, bundle inspection,
+> and self-contained interactive Cytoscape.js visualization without external cloud or framework dependencies.
 >
 > **See OKF in practice** — three ready-to-browse bundles produced by this
 > agent, checked into [`bundles/`](bundles/):
@@ -35,6 +34,10 @@
 >   blocks/transactions ([viz.html](bundles/crypto_bitcoin/viz.html))
 > - [`bundles/acme_retail/`](bundles/acme_retail/) — Acme Retail
 >   ([viz.html](bundles/acme_retail/viz.html))
+> - [`bundles/air_quality_bolivia/`](bundles/air_quality_bolivia/) — Red MoniCA Calidad del Aire Bolivia (Parquet + CSV + SKOS)
+> - [`bundles/cndc_despacho_electrico/`](bundles/cndc_despacho_electrico/) — Despacho Eléctrico Dinámico SIN CNDC (DataService + PROV-O)
+> - [`bundles/censo_2024_cartografia/`](bundles/censo_2024_cartografia/) — Cartografía Censal INE 2024 (Recurso Compuesto ZIP + Fragment Identifiers)
+> - [`bundles/udabol_salud_syndicated/`](bundles/udabol_salud_syndicated/) — Vigilancia Epidemiológica Dengue UDABOL (Sindicación Multicatálogo + DNS Soberano)
 
 ## Why OKF?
 
@@ -185,7 +188,7 @@ one shape.
 ### Generate
 
 ```
-.venv/bin/python -m reference_agent visualize --bundle ./bundles/<name>
+./src/bin/okf visualize --bundle ./bundles/<name>
 ```
 
 That writes `bundles/<name>/viz.html`. Flags:
@@ -199,7 +202,7 @@ That writes `bundles/<name>/viz.html`. Flags:
 Example, writing the output somewhere else and overriding the header:
 
 ```
-.venv/bin/python -m reference_agent visualize \
+./src/bin/okf visualize \
     --bundle ./bundles/crypto_bitcoin \
     --out /tmp/btc.html \
     --name "Bitcoin OKF"
@@ -213,8 +216,30 @@ The HTML embeds the bundle as a JSON blob and uses
 both loaded from a CDN. No data leaves the page; the bundle is parsed
 once at generation time and serialized into the file.
 
-## Tests
+## Specification-Driven Design (SDD) & Formal Architecture
 
-```
-.venv/bin/pytest
+The Open Knowledge Format follows a strict **Specification-Driven Design (SDD)** methodology:
+* **Normative SDD Document:** [`docs/SPECIFICATION_DRIVEN_DESIGN.md`](docs/SPECIFICATION_DRIVEN_DESIGN.md)
+* **Formal Grammars (EBNF):** Reverse Sovereign DNS (`<dataset>.<resource>@<catalog>`), Canonical URIs (`okf://`), Triads, and Archive Fragment Identifiers (`#subpath`).
+* **Abstract Hexagonal Ports:** `StoragePort` (RFC 7233 Range-reads), `CatalogResolverPort`, `DataProductResolverPort`, `QueryEnginePort`, `TrustVerifierPort`.
+* **State Machines (FSM):** Formal state transitions for recursive catalog crawling ($MAX\_DEPTH=8$), HTTP Range zip extraction, and dynamic DataService failover.
+* **Executable Conformance Test Suite (ECTS):** Golden test vectors to certify downstream client runtimes (e.g. [`datamesh-sdk`](file:///home/andreschirinos/Proyectos/datamesh-sdk)).
+* **Problem Specifications:** Detailed RFC-style technical specs in [`docs/problemas/`](docs/problemas/README.md).
+
+## Core Go CLI & Testing
+
+The format engine and CLI are built with Go 1.22+:
+
+```bash
+cd src
+go build -o bin/okf ./cmd/okf
+
+# Run all domain and use case tests
+go test -v ./...
+
+# Validate an OKF concept or bundle
+./bin/okf validate ../bundles/air_quality_bolivia/index.md
+
+# Generate interactive visualization
+./bin/okf visualize --bundle ../bundles/air_quality_bolivia --out /tmp/air_viz.html
 ```
