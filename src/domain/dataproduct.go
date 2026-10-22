@@ -21,6 +21,29 @@ type Contract struct {
 	Inline map[string]interface{} `json:"inline,omitempty" yaml:"inline,omitempty"` // Inline contract specification
 }
 
+// GeneratedSpec models the creation provenance per OKF v0.2 §5.1 & W3C PROV-O.
+type GeneratedSpec struct {
+	By     string   `json:"by,omitempty" yaml:"by,omitempty"`         // Actor: "Name <email>", URL, or agent:<id>
+	At     string   `json:"at,omitempty" yaml:"at,omitempty"`         // ISO 8601 UTC timestamp
+	From   []string `json:"from,omitempty" yaml:"from,omitempty"`     // Input URIs or relative concept paths
+	Recipe string   `json:"recipe,omitempty" yaml:"recipe,omitempty"` // Pipeline script, prompt, or recipe URL
+}
+
+// VerificationRecord models an explicit verification assertion per OKF v0.2 §5.2.
+type VerificationRecord struct {
+	By     string `json:"by,omitempty" yaml:"by,omitempty"`         // Verifier actor
+	At     string `json:"at,omitempty" yaml:"at,omitempty"`         // ISO 8601 UTC timestamp
+	Method string `json:"method,omitempty" yaml:"method,omitempty"` // automated, human, cryptographic, peer-review
+	Notes  string `json:"notes,omitempty" yaml:"notes,omitempty"`   // Verification observations
+}
+
+// FreshnessSpec models concept currency, cadence, and expiration per OKF v0.2 §5.4.
+type FreshnessSpec struct {
+	Cadence            string `json:"cadence,omitempty" yaml:"cadence,omitempty"`                         // ISO 8601 duration (e.g. P1D, P1W, P1M)
+	Expires            string `json:"expires,omitempty" yaml:"expires,omitempty"`                         // ISO 8601 timestamp
+	StalenessIndicator string `json:"staleness_indicator,omitempty" yaml:"staleness_indicator,omitempty"` // Query or signal to check if stale
+}
+
 // EpistemicActor represents an epistemic agent or verifier in the provenance chain (emitter or attester).
 type EpistemicActor struct {
 	By        string                 `json:"by" yaml:"by"`                             // human:<id>, agent:<id>, process:<id>
@@ -109,20 +132,27 @@ type Signature struct {
 
 // Manifest represents the frontmatter header specified in OKF / ODKF v0.2.
 type Manifest struct {
-	Type       string            `json:"type" yaml:"type"`
-	Title      string            `json:"title" yaml:"title"`
-	Dimensions []string          `json:"dimensions" yaml:"dimensions"`
-	Nature     string            `json:"nature,omitempty" yaml:"nature,omitempty"` // structured, semi-structured, unstructured
-	Status     string            `json:"status,omitempty" yaml:"status,omitempty"` // draft, stable, verified, refuted, deprecated
-	Supersedes string            `json:"supersedes,omitempty" yaml:"supersedes,omitempty"` // URI of superseded concept (Popperian falsability)
-	Contracts  []Contract        `json:"contracts,omitempty" yaml:"contracts,omitempty"`
-	Spatial    *SpatialCoverage  `json:"spatial,omitempty" yaml:"spatial,omitempty"`
-	Temporal   *TemporalCoverage `json:"temporal,omitempty" yaml:"temporal,omitempty"`
-	Quality    *QualityProfile   `json:"quality,omitempty" yaml:"quality,omitempty"`
-	Lineage    Lineage           `json:"lineage" yaml:"lineage"`
-	Emitter    *EpistemicActor   `json:"emitter,omitempty" yaml:"emitter,omitempty"`
-	Attester   *EpistemicActor   `json:"attester,omitempty" yaml:"attester,omitempty"`
-	Signatures []Signature       `json:"signatures,omitempty" yaml:"signatures,omitempty"`
+	Type         string                `json:"type" yaml:"type"`
+	Title        string                `json:"title" yaml:"title"`
+	Description  string                `json:"description,omitempty" yaml:"description,omitempty"`
+	Resource     string                `json:"resource,omitempty" yaml:"resource,omitempty"`
+	Tags         []string              `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Dimensions   []string              `json:"dimensions" yaml:"dimensions"`
+	Nature       string                `json:"nature,omitempty" yaml:"nature,omitempty"` // structured, semi-structured, unstructured
+	Status       string                `json:"status,omitempty" yaml:"status,omitempty"` // draft, proposed, active, deprecated, retired, superseded
+	Supersedes   string                `json:"supersedes,omitempty" yaml:"supersedes,omitempty"` // URI of superseded concept (Popperian falsability)
+	SupersededBy string                `json:"superseded_by,omitempty" yaml:"superseded_by,omitempty"`
+	Generated    *GeneratedSpec        `json:"generated,omitempty" yaml:"generated,omitempty"`
+	Verified     []VerificationRecord  `json:"verified,omitempty" yaml:"verified,omitempty"`
+	Freshness    *FreshnessSpec        `json:"freshness,omitempty" yaml:"freshness,omitempty"`
+	Contracts    []Contract            `json:"contracts,omitempty" yaml:"contracts,omitempty"`
+	Spatial      *SpatialCoverage      `json:"spatial,omitempty" yaml:"spatial,omitempty"`
+	Temporal     *TemporalCoverage     `json:"temporal,omitempty" yaml:"temporal,omitempty"`
+	Quality      *QualityProfile       `json:"quality,omitempty" yaml:"quality,omitempty"`
+	Lineage      Lineage               `json:"lineage" yaml:"lineage"`
+	Emitter      *EpistemicActor       `json:"emitter,omitempty" yaml:"emitter,omitempty"`
+	Attester     *EpistemicActor       `json:"attester,omitempty" yaml:"attester,omitempty"`
+	Signatures   []Signature           `json:"signatures,omitempty" yaml:"signatures,omitempty"`
 }
 
 // DataProduct is the Aggregate Root representing an Open Knowledge Format node.

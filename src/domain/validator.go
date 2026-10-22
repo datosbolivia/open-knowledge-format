@@ -57,8 +57,12 @@ func (r *ValidationReport) AddIssue(code string, sev Severity, msg string, path 
 }
 
 var (
-	sha256Regex   = regexp.MustCompile(`^sha256:[a-fA-F0-9]{64}$`)
-	triadRegex    = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+[:/][a-zA-Z0-9_\-\. ]+([:/][a-zA-Z0-9_\-\. ]+)?$`)
+	sha256Regex       = regexp.MustCompile(`^sha256:[a-fA-F0-9]{64}$`)
+	triadRegex        = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+[:/][a-zA-Z0-9_\-\. ]+([:/][a-zA-Z0-9_\-\. ]+)?$`)
+	actorRegex        = regexp.MustCompile(`^([^<]+<[^>]+@[\w\.-]+>|https?://[^\s]+|agent:[a-zA-Z0-9_\-\.]+|user:[a-zA-Z0-9_\-\.]+|process:[a-zA-Z0-9_\-\.]+|human:[a-zA-Z0-9_\-\.]+)$`)
+	isoDurationRegex  = regexp.MustCompile(`^P(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+S)?)?$`)
+	markdownLinkRegex = regexp.MustCompile(`\[[^\]]*\]\(([^)]+\.md)\)`)
+
 	validPolicies = map[string]bool{
 		"allow_all":      true,
 		"zero_microdata": true,
@@ -71,21 +75,37 @@ var (
 		"cwl":         true,
 		"cli_tool":    true,
 	}
+	validStatusMap = map[string]bool{
+		"draft":      true,
+		"proposed":   true,
+		"active":     true,
+		"deprecated": true,
+		"retired":    true,
+		"superseded": true,
+		"stable":     true,
+		"verified":   true,
+		"refuted":    true,
+	}
 )
 
 type ConceptFrontmatter struct {
-	Type        string                 `yaml:"type"`
-	Title       string                 `yaml:"title"`
-	Description string                 `yaml:"description"`
-	Tags        []string               `yaml:"tags"`
-	Timestamp   string                 `yaml:"timestamp"`
-	Status      string                 `yaml:"status"`
-	SKOS        []string               `yaml:"skos"`
-	Dimensions  []string               `yaml:"dimensions"`
-	Contracts   []ContractSpec         `yaml:"contracts"`
-	Lineage     *LineageSpec           `yaml:"lineage"`
-	Policy      string                 `yaml:"policy"`
-	Extra       map[string]interface{} `yaml:",inline"`
+	Type         string                 `yaml:"type"`
+	Title        string                 `yaml:"title"`
+	Description  string                 `yaml:"description"`
+	Resource     string                 `yaml:"resource"`
+	Tags         []string               `yaml:"tags"`
+	Timestamp    string                 `yaml:"timestamp"`
+	Status       string                 `yaml:"status"`
+	SupersededBy string                 `yaml:"superseded_by"`
+	Generated    *GeneratedSpec         `yaml:"generated"`
+	Verified     []VerificationRecord   `yaml:"verified"`
+	Freshness    *FreshnessSpec         `yaml:"freshness"`
+	SKOS         []string               `yaml:"skos"`
+	Dimensions   []string               `yaml:"dimensions"`
+	Contracts    []ContractSpec         `yaml:"contracts"`
+	Lineage      *LineageSpec           `yaml:"lineage"`
+	Policy       string                 `yaml:"policy"`
+	Extra        map[string]interface{} `yaml:",inline"`
 }
 
 type ContractSpec struct {
@@ -102,12 +122,31 @@ type LineageSpec struct {
 }
 
 type TransformationSpec struct {
+	Step string `yaml:"step" json:"step"`
 	Tool string `yaml:"tool" json:"tool"`
-	Type string `yaml:"type" json:"type"`
 	Hash string `yaml:"hash" json:"hash"`
 }
 
-// ValidateConceptContent validates a single markdown file content and its YAML frontmatter.
+func parseFlexibleTimestamp(ts string) bool {
+	clean := strings.TrimSpace(ts)
+	if clean == "" {
+		return false
+	}
+	formats := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+	}
+	for _, f := range formats {
+		if _, err := time.Parse(f, clean); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateConceptContent validates an in-memory concept string against OKF/ODKF rules.
 func ValidateConceptContent(content string, filePath string) *ValidationReport {
 	report := &ValidationReport{
 		Valid:  true,
@@ -215,11 +254,52 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 		}
 	}
 
-	// Check Timestamp format if present
-	if strings.TrimSpace(fm.Timestamp) != "" {
-		if _, err := time.Parse(time.RFC3339, strings.TrimSpace(fm.Timestamp)); err != nil {
-			report.AddIssue("RULE-01-TIMESTAMP", SeverityWarning, fmt.Sprintf("Timestamp '%s' does not follow ISO 8601 (RFC3339)", fm.Timestamp), filePath, 1)
+	// RULE-09: Actor Format (§7)
+	if fm.Generated != nil && strings.TrimSpace(fm.Generated.By) != "" {
+		if !actorRegex.MatchString(strings.TrimSpace(fm.Generated.By)) {
+			report.AddIssue("RULE-09-ACTOR-FORMAT", SeverityWarning, fmt.Sprintf("generated.by '%s' does not match actor format ('Name <email>', URL, or actor URI prefix)", fm.Generated.By), filePath, 1)
 		}
+	}
+	for idx, v := range fm.Verified {
+		if strings.TrimSpace(v.By) != "" && !actorRegex.MatchString(strings.TrimSpace(v.By)) {
+			report.AddIssue("RULE-09-ACTOR-FORMAT", SeverityWarning, fmt.Sprintf("verified[%d].by '%s' does not match actor format ('Name <email>', URL, or actor URI prefix)", idx, v.By), filePath, 1)
+		}
+	}
+
+	// RULE-10: Status Enum & Superseded (§5.3)
+	if strings.TrimSpace(fm.Status) != "" {
+		stNorm := strings.ToLower(strings.TrimSpace(fm.Status))
+		if !validStatusMap[stNorm] {
+			report.AddIssue("RULE-10-STATUS-UNKNOWN", SeverityWarning, fmt.Sprintf("status '%s' is not in canonical enum (draft, proposed, active, deprecated, retired, superseded)", fm.Status), filePath, 1)
+		}
+		if stNorm == "superseded" && strings.TrimSpace(fm.SupersededBy) == "" {
+			report.AddIssue("RULE-10-SUPERSEDED-TARGET", SeverityError, "Concept marked as 'superseded' MUST define 'superseded_by' with target path or URI", filePath, 1)
+		}
+	}
+
+	// RULE-11: ISO 8601 Timestamps & Durations (§5.1, §5.4)
+	if fm.Freshness != nil {
+		if strings.TrimSpace(fm.Freshness.Cadence) != "" {
+			if !isoDurationRegex.MatchString(strings.TrimSpace(fm.Freshness.Cadence)) {
+				report.AddIssue("RULE-11-CADENCE-SYNTAX", SeverityWarning, fmt.Sprintf("freshness.cadence '%s' must follow ISO 8601 duration format (e.g. P1D, P1W, P1M)", fm.Freshness.Cadence), filePath, 1)
+			}
+		}
+		if strings.TrimSpace(fm.Freshness.Expires) != "" && !parseFlexibleTimestamp(fm.Freshness.Expires) {
+			report.AddIssue("RULE-11-EXPIRES-SYNTAX", SeverityWarning, fmt.Sprintf("freshness.expires '%s' must be a valid ISO 8601 date or timestamp", fm.Freshness.Expires), filePath, 1)
+		}
+	}
+	if fm.Generated != nil && strings.TrimSpace(fm.Generated.At) != "" && !parseFlexibleTimestamp(fm.Generated.At) {
+		report.AddIssue("RULE-11-GENERATED-AT-SYNTAX", SeverityWarning, fmt.Sprintf("generated.at '%s' must be a valid ISO 8601 timestamp", fm.Generated.At), filePath, 1)
+	}
+	for idx, v := range fm.Verified {
+		if strings.TrimSpace(v.At) != "" && !parseFlexibleTimestamp(v.At) {
+			report.AddIssue("RULE-11-VERIFIED-AT-SYNTAX", SeverityWarning, fmt.Sprintf("verified[%d].at '%s' must be a valid ISO 8601 timestamp", idx, v.At), filePath, 1)
+		}
+	}
+
+	// Check legacy Timestamp format if present
+	if strings.TrimSpace(fm.Timestamp) != "" && !parseFlexibleTimestamp(fm.Timestamp) {
+		report.AddIssue("RULE-01-TIMESTAMP", SeverityWarning, fmt.Sprintf("Timestamp '%s' does not follow ISO 8601", fm.Timestamp), filePath, 1)
 	}
 
 	return report
@@ -241,7 +321,7 @@ func ValidateTriad(triad string) *ValidationReport {
 	return report
 }
 
-// ValidateBundle recursively validates an OKF/ODKF bundle directory.
+// ValidateBundle recursively validates an OKF/ODKF bundle directory, checking all concepts and detecting cyclic references.
 func ValidateBundle(bundleDir string) (*ValidationReport, error) {
 	report := &ValidationReport{
 		Valid:  true,
@@ -257,7 +337,9 @@ func ValidateBundle(bundleDir string) (*ValidationReport, error) {
 		return nil, fmt.Errorf("target '%s' is not a directory", bundleDir)
 	}
 
+	conceptContents := make(map[string]string)
 	conceptCount := 0
+
 	err = filepath.Walk(bundleDir, func(path string, fi os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -294,6 +376,8 @@ func ValidateBundle(bundleDir string) (*ValidationReport, error) {
 		}
 
 		conceptCount++
+		conceptContents[path] = content
+
 		docReport := ValidateConceptContent(content, path)
 		if !docReport.Valid {
 			report.Valid = false
@@ -311,6 +395,60 @@ func ValidateBundle(bundleDir string) (*ValidationReport, error) {
 
 	if conceptCount == 0 {
 		report.AddIssue("RULE-07-EMPTY-BUNDLE", SeverityError, "Bundle directory contains no concept markdown (.md) documents", bundleDir, 0)
+		return report, nil
+	}
+
+	// RULE-12: Directed Graph Cycle Detection across concepts in bundle
+	graph := make(map[string][]string)
+	for path, content := range conceptContents {
+		dir := filepath.Dir(path)
+		matches := markdownLinkRegex.FindAllStringSubmatch(content, -1)
+		for _, m := range matches {
+			if len(m) >= 2 {
+				targetRef := m[1]
+				if strings.HasPrefix(targetRef, "http://") || strings.HasPrefix(targetRef, "https://") || strings.HasPrefix(targetRef, "#") {
+					continue
+				}
+				cleanTarget := filepath.Clean(filepath.Join(dir, targetRef))
+				if _, exists := conceptContents[cleanTarget]; exists && cleanTarget != path {
+					graph[path] = append(graph[path], cleanTarget)
+				}
+			}
+		}
+	}
+
+	// DFS 3-color cycle detection: 0 = White (unvisited), 1 = Gray (visiting), 2 = Black (visited)
+	color := make(map[string]int)
+	var hasCycle func(node string, pathStack []string) bool
+	hasCycle = func(node string, pathStack []string) bool {
+		color[node] = 1
+		pathStack = append(pathStack, node)
+
+		for _, neighbor := range graph[node] {
+			if color[neighbor] == 1 {
+				cycleStr := ""
+				for _, p := range pathStack {
+					cycleStr += filepath.Base(p) + " -> "
+				}
+				cycleStr += filepath.Base(neighbor)
+				report.AddIssue("RULE-12-CIRCULAR-REFERENCE", SeverityError, fmt.Sprintf("Circular dependency detected between concepts: %s", cycleStr), node, 1)
+				return true
+			}
+			if color[neighbor] == 0 {
+				if hasCycle(neighbor, pathStack) {
+					return true
+				}
+			}
+		}
+
+		color[node] = 2
+		return false
+	}
+
+	for node := range conceptContents {
+		if color[node] == 0 {
+			hasCycle(node, nil)
+		}
 	}
 
 	return report, nil

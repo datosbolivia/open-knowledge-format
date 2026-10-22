@@ -22,6 +22,8 @@ func printUsage() {
 		"Usage:\n"+
 		"  okf <command> [arguments]\n\n"+
 		"Commands:\n"+
+		"  init        Initialize a new OKF v0.2 bundle directory structure\n"+
+		"  index       Scan bundle and generate/update index.md for progressive disclosure\n"+
 		"  validate    Validate a concept document, bundle directory, or URL against OKF v0.2\n"+
 		"  visualize   Generate a self-contained interactive HTML graph visualization\n"+
 		"  inspect     Display parsed frontmatter, ontology anchors, and contracts\n"+
@@ -37,6 +39,10 @@ func main() {
 
 	command := os.Args[1]
 	switch command {
+	case "init":
+		runInit(os.Args[2:])
+	case "index":
+		runIndex(os.Args[2:])
 	case "validate":
 		runValidate(os.Args[2:])
 	case "visualize":
@@ -50,6 +56,55 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\nRun 'okf help' for available commands.\n", command)
 		os.Exit(1)
+	}
+}
+
+func runInit(args []string) {
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	title := fs.String("title", "", "Human-readable bundle title")
+	desc := fs.String("desc", "", "Short description of the knowledge bundle")
+	fs.Parse(args)
+
+	targetDir := "."
+	if len(fs.Args()) > 0 {
+		targetDir = fs.Args()[0]
+	}
+
+	err := usecases.InitBundle(targetDir, *title, *desc)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing bundle: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("[OK] Initialized OKF v0.2 bundle at '%s'\n", targetDir)
+	fmt.Println("  Created index.md (root index)")
+	fmt.Println("  Created log.md (append-only changelog)")
+	fmt.Println("  Created concepts/sample_dataset.md (conforming concept)")
+}
+
+func runIndex(args []string) {
+	fs := flag.NewFlagSet("index", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output index summary as JSON")
+	fs.Parse(args)
+
+	targetDir := "."
+	if len(fs.Args()) > 0 {
+		targetDir = fs.Args()[0]
+	}
+
+	report, err := usecases.GenerateIndex(targetDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating index: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *jsonOutput {
+		outBytes, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(outBytes))
+	} else {
+		fmt.Printf("[OK] Re-indexed bundle '%s' -> %s\n", targetDir, report.IndexFilePath)
+		fmt.Printf("  Concepts indexed: %d\n", report.ConceptsIndexed)
+		fmt.Printf("  Types found: %s\n", strings.Join(report.TypesFound, ", "))
 	}
 }
 
@@ -160,9 +215,8 @@ func runInspect(args []string) {
 
 	report := domain.ValidateConceptContent(string(bytes), target)
 	fmt.Printf("Concept: %s\n", target)
-	fmt.Printf("Status:  Valid=%v (Errors: %d, Warnings: %d)\n\n", report.Valid, report.TotalErrors, report.TotalWarnings)
-	fmt.Println("Frontmatter YAML:")
-	fmt.Println("--------------------------------------------------")
-	fmt.Println(strings.TrimSpace(parts[1]))
-	fmt.Println("--------------------------------------------------")
+	fmt.Printf("Valid: %t (Errors: %d, Warnings: %d)\n", report.Valid, report.TotalErrors, report.TotalWarnings)
+	for _, issue := range report.Issues {
+		fmt.Printf("  - [%s] %s: %s\n", issue.Severity, issue.Code, issue.Message)
+	}
 }
