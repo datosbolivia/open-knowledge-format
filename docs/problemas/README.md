@@ -45,3 +45,18 @@ Este desglose de problemáticas nutre directamente la estructura de la tesis:
   - *Subcapítulo IV.2:* La especificación de red P2P de la carpeta 05 define el protocolo de transporte y descubrimiento.
   - *Subcapítulo IV.3:* La implementación técnica en `datamesh-sdk` materializa los algoritmos de resolución, desduplicación, lectura parcial de ZIPs y verificación criptográfica.
 - **Capítulo V (Evaluación y Resultados):** Las reglas de validación e invariantes normativos sirven como criterios cuantitativos de evaluación empírica.
+
+---
+
+## 3. Mapeo con el Marco de Interoperabilidad en Cuatro Niveles (EIF & FAIR)
+
+Cada una de las 7 problemáticas abordadas se inscribe en las cuatro capas canónicas de interoperabilidad:
+
+| Nivel de Interoperabilidad (EIF) | Problemáticas Asociadas | Estándares Clave Involucrados |
+| :--- | :--- | :--- |
+| **1. Técnica** | [Prob. 04: Recursos Compuestos y ZIPs](04_recursos_compuestos_archivos_anidados/ESPECIFICACION.md)<br>[Prob. 05: Red P2P y DNS Soberano](05_red_p2p_y_dns_soberano/ESPECIFICACION.md) | HTTP Range Requests (RFC 7233), Kademlia DHT, Apache Arrow Flight, ZIP Central Directory. |
+| **2. Sintáctica** | [Prob. 06: Contratos de Datos](06_contratos_datos_y_politicas_gobernanza/ESPECIFICACION.md)<br>[Prob. 07: Legibilidad Tripartita y llms.txt](07_legibilidad_tripartita_y_catalogos_ligeros/ESPECIFICACION.md)<br>[Prob. 08: Traducción Lossless y Extras](08_cuerpo_markdown_traduccion_lossless_y_w3c_baseline/ESPECIFICACION.md) | Frictionless Data Package, OpenAPI 3.1, Apache Parquet, YAML Frontmatter, llms.txt, Schema Preservation. |
+| **3. Semántica** | [Prob. 01: Federación Recursiva de Catálogos](01_federacion_recursiva_catalogos/ESPECIFICACION.md)<br>[Prob. 02: Sindicación y Co-referencia](02_sindicacion_y_coreferencia_datasets/ESPECIFICACION.md)<br>[Prob. 03: Jerarquía Dataset/Recursos](03_jerarquia_dataset_recursos_subdominios/ESPECIFICACION.md)<br>[Prob. 08: Núcleo Semántico W3C y Markdown Body](08_cuerpo_markdown_traduccion_lossless_y_w3c_baseline/ESPECIFICACION.md)<br>[Prob. 09: Markdown Knowledge Graph y LLM Wiki](09_grafo_conocimiento_markdown_llm_wiki_y_mcp_semantico/ESPECIFICACION.md) | W3C DCAT v3, W3C PROV-O, W3C SKOS, DCMI, Paradigma LLM OS / Personal LLM Wiki (Karpathy), MCP Semántico, Tríadas Canónicas. |
+| **4. Organizativa / Jurídica** | [Prob. 06: Políticas Zero-Microdata y Gobernanza](06_contratos_datos_y_politicas_gobernanza/ESPECIFICACION.md) | Licencias abiertas FAIR (CC/ODbL), Habeas Data, Firmas OpenSSH/Ed25519, W3C PROV-O, SLSA. |
+
+Para más detalles, consultar [`docs/INTEROPERABILIDAD_EN_CUATRO_NIVELES.md`](../INTEROPERABILIDAD_EN_CUATRO_NIVELES.md).

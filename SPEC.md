@@ -206,20 +206,23 @@ appear.
 SHOULD preserve unknown keys when round-tripping and MUST NOT reject
 documents with unrecognized fields.
 
-### 4.2 Body
+### 4.2 Body: The Human-AI Operational Interface
 
-The body is standard markdown. Producers SHOULD favor structural markdown
-(headings, lists, tables, fenced code blocks) over freeform prose, since
-structure aids both human reading and agent retrieval.
+The body is standard UTF-8 markdown. In OKF/ODKF v0.2, the body is not mere ancillary text; it is the **primary cognitive and operational interface between humans and AI agents**. While the YAML frontmatter and referenced contracts define machine-executable syntactic schemas (Frictionless, Parquet, DuckDB), the markdown body provides the necessary domain semantics, methodological context, and operational instructions for tools and agents:
 
-There are no required body sections. The following headings have
-**conventional** meaning and SHOULD be used when applicable:
+1. **Context Engineering for LLM Agents:** Structural elements (headings, bullet points, fenced code blocks, and markdown tables) provide agents with high-density, token-efficient context, preventing hallucination during query synthesis.
+2. **Operational Tool Interaction:** Documents SHOULD include fenced code blocks with executable SQL queries, API calls, or MCP tool invocations demonstrating how downstream engines (e.g. `datamesh_sql_query`) resolve the underlying physical data.
+3. **Methodological Context & Biases:** Qualitative warnings, sampling frames, statistical coverage, and regulatory constraints (Habeas Data / zero-microdata rules).
 
-| Heading         | Purpose                                                |
-|-----------------|--------------------------------------------------------|
-| `# Schema`      | Structured description of an asset's columns/fields.   |
-| `# Examples`    | Concrete usage examples, often as fenced code blocks.  |
-| `# Computation` | The sanctioned computation of an Attested Computation. See §10. |
+The following headings have **conventional** normative meaning:
+
+| Heading | Purpose | Target Consumer |
+| :--- | :--- | :--- |
+| `## Description & Domain Context` | Human and AI prose describing the purpose and relevance of the asset. | Human / Agent |
+| `## Methodology, Scope & Biases` | Sampling frame, statistical limitations, and data quality caveats. | Auditor / Researcher / Agent |
+| `## Operational Interaction & Example Queries` | Ready-to-execute fenced SQL (`SELECT ...`), CLI commands, or MCP calls. | Agent Tooling / Analyst |
+| `## Data Dictionary & Semantic Anchors` | Structured mapping of column attributes, units of measure, and SKOS URIs. | Human / Machine |
+| `## Computation & Verification` | The sanctioned computation of an Attested Computation. See §10. | Runtime / Verifier |
 
 Per-claim attribution to external sources uses markdown footnotes keyed to
 `sources` entries rather than a body citations list (§5.1).
@@ -1007,15 +1010,27 @@ Gross profit by segment per the cost-allocation standard.[^cost-alloc]
 
 ---
 
-## 13. Open Data Knowledge Format (ODKF v0.2) Extension
+## 13. Open Data Knowledge Format (ODKF v0.2) Extension: Meta-Standard Index & Tripartite Epistemology
 
-ODKF (Open Data Knowledge Format) is the normative extension of OKF v0.2 for sovereign DataMesh architectures, federated analytical catalogs, and verifiable data products. While core OKF focuses on human-and-agent readable concepts, ODKF bridges contextual narratives directly with strict syntactic schemas (**Frictionless DataPackage**, **W3C DCAT**, **OpenAPI**, and **CWL CommandLineTool**).
+ODKF (Open Data Knowledge Format) is the normative extension and universal superset of Google OKF v0.2 for sovereign DataMesh architectures, federated analytical catalogs, and verifiable data products. Rather than competing with existing standards or forcing centralized conversions, ODKF functions as a **Meta-Standard and Index of Indexes** that unifies and references external formats without data duplication.
 
-### 13.1 Philosophy & Zero-Microdata Principle
+### 13.1 Foundational Architecture Principles
 
-1. **Sovereignty without Central Registries:** If you can `cat` a markdown file and `git clone` a repository, you can operate an ODKF catalog.
-2. **Zero-Microdata by Design:** Public knowledge nodes and catalogs publish documentation, schemas, dimensions, and contracts. Heavy physical data resides externally or behind access controls. Non-authenticated queries are restricted to aggregate statistics (`COUNT`, `SUM`, `AVG`, `GROUP BY`).
-3. **Decoupled Syntactic Execution:** Concept files (`index.md`) provide narrative, lineage, and semantic anchors. Contracts (`contracts:`) point to standard machine-actionable schemas.
+1. **Meta-Standard Index ("Index of Indexes"):** OKF acts as the lightweight, human-and-AI-friendly orchestrator (Markdown + YAML frontmatter). It does not duplicate schemas; it catalogs, links, and indexes domain-specific standards (**W3C DCAT v3**, **Frictionless DataPackage**, **OpenAPI 3.1**, **CWL**, **Schema.org**).
+2. **By-Reference Resolution (`ref:` Clause):** To maintain the **Single Source of Truth (SSOT)** and eliminate information redundancy, contracts, schemas, and pipelines can be referenced directly via `ref:` (remote URL) or `path:` (local path). Downstream runtimes and validators resolve and cache external schemas on demand.
+3. **Tripartite Epistemological Separation (Metadata vs Paradata vs Data):**
+   - **Metadata (Descriptive & Conceptual):** Defines *what* the knowledge asset represents (domain, titles, dimensions, ontological anchors in SKOS/Wikidata, syntactic contract references).
+   - **Paradata (Methodological & Process Context):** Captures *how* the asset was produced, verified, and evolved (creation actor `generated.by`, execution recipe `generated.recipe`, verification chain `verified[]`, update cadence `freshness.cadence`, and cryptographic lineage `lineage.transformations`).
+   - **Data (Substantive Payload):** The actual underlying content (tuples, matrices, arrays, columnar Parquet partitions, embeddings, or dynamic API streams).
+4. **Operational Resource Taxonomy (Orthogonal Matrix):**
+   - **By Dynamism:**
+     - *Static Resources:* Immutable, content-addressed files (CSV, Parquet, GeoJSON, SQLite, DuckDB, nested ZIP/TAR archives accessible via zero-copy range requests).
+     - *Dynamic Resources:* Continuously flowing or queryable endpoints (REST/GraphQL APIs, Apache Arrow Flight SQL streams, federated live SQL views).
+   - **By Locality:**
+     - *Local Resources:* Residing on host filesystem or within packaged bundle.
+     - *Remote Resources:* Hosted across distributed infrastructures (HTTP/S, S3/MinIO buckets, sovereign P2P networks, or CKAN portals).
+5. **Extensible Plugin/Connector Architecture:** The format defines declarative ports, enabling third-party plugins to harvest, translate, and query diverse backend standards seamlessly.
+6. **Zero-Microdata by Design:** Public knowledge nodes and catalogs publish documentation, schemas, dimensions, and contracts. Heavy physical data resides externally or behind access controls. Non-authenticated queries are restricted to aggregate statistics (`COUNT`, `SUM`, `AVG`, `GROUP BY`).
 
 ### 13.2 Frontmatter Specification for ODKF Concepts
 
@@ -1339,3 +1354,22 @@ The Open Knowledge Format functions as a meta-index bridging disparate internati
 | **Anclaje Ontológico** | SKOS / Wikidata (`wd:*`) | RDF Mapping Extension | Field Metadata (`ARROW:extension`) | N/A | N/A |
 | **Linaje y Procedencia** | `prov:wasGeneratedBy` | N/A (Custom fields) | N/A | `prov:Activity`, `prov:Agent` | CWL v1.2 Workflow |
 | **Firma y Confianza** | `spdx:checksum` | `hash` (`sha256:...`) | File Metadata Checksum | `prov:wasAttributedTo` | TLS 1.3 Client Certs / SSH |
+### 16.4 W3C Baseline Dictionary, Near-Lossless Translation and Open Extensibility
+
+1. **W3C Standards as Default Recommended Baseline:**
+   - The Open Knowledge Format designates the official **W3C Recommendations** as its default semantic and structural dictionary:
+     - **W3C DCAT v3** (`dcat:Catalog`, `dcat:Dataset`, `dcat:Distribution`, `dcat:DataService`).
+     - **W3C PROV-O** (`prov:wasGeneratedBy`, `prov:wasDerivedFrom`, `prov:wasAttributedTo`).
+     - **W3C SKOS** (`skos:Concept`, `skos:broader`, `skos:related`).
+     - **DCMI / Dublin Core** (`dcterms:title`, `dcterms:description`, `dcterms:license`, `dcterms:issued`).
+   - Consumers and agents SHOULD assume W3C semantic definitions for all standard fields unless explicitly overridden by a domain profile.
+
+2. **Near-Lossless Translation Guarantee:**
+   - When translating an OKF concept or data product across formats (OKF $\leftrightarrow$ W3C DCAT-AP $\leftrightarrow$ Frictionless Data Package $\leftrightarrow$ CKAN $\leftrightarrow$ Apache Arrow), the runtime guarantees **minimal information loss**:
+     - *Syntactic Types & Invariants:* Primitives, nullability, constraints, and foreign keys are preserved.
+     - *Paradata & Provenance:* Methodological attributes (`generated`, `verified`, `freshness`, `lineage`) are preserved in designated extension envelopes (`extras` in CKAN, `custom` in Frictionless, `SchemaMetadata` in Arrow/Parquet).
+     - *Zero Deletion of Unknowns:* Translators MUST NOT drop unrecognized keys; they are round-tripped through the extension container.
+
+3. **Open Extensibility Convention (`extra:`):**
+   - Producers are free to attach arbitrary domain-specific metadata (e.g., geospatial ISO 19115 bounding boxes, healthcare HL7/FHIR profiles, or financial SDMX dimensions).
+   - The validator permits open extensions via the inline `extra: map[string]interface{}` dictionary. Conformance (§11) guarantees that unknown keys do not invalidate a concept.
