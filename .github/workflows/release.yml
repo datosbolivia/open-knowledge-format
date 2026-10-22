@@ -73,16 +73,19 @@ jobs:
           go build -ldflags="-s -w -X main.version=${TAG}" -o "../build_output/${BINARY_NAME}" ./cmd/okf
           cd ..
 
-      - name: Package Archive
+      - name: Package Archive and Standalone Binary
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           ARCHIVE_NAME="okf_${TAG}_${{ matrix.goos }}_${{ matrix.goarch }}"
           mkdir -p dist
 
           cd build_output
-          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
+          # Standalone uncompressed binary for 1-line curl install (e.g. Google Colab / Docker)
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cp okf.exe "../dist/okf-${{ matrix.goos }}-${{ matrix.goarch }}.exe"
             zip -9 "../dist/${ARCHIVE_NAME}.zip" okf.exe
           else
+            cp okf "../dist/okf-${{ matrix.goos }}-${{ matrix.goarch }}"
             tar -czvf "../dist/${ARCHIVE_NAME}.tar.gz" okf
           fi
           cd ..
