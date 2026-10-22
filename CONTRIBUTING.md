@@ -1,43 +1,48 @@
-# Contributing
+# Guía de Contribución y Desarrollo (CONTRIBUTING.md)
 
-Thanks for your interest in contributing to the Open Knowledge Format (OKF)!
+Gracias por tu interés en contribuir al estándar **Open Knowledge Format (OKF / ODKF v0.2)** y su motor de referencia en Go (`src/`).
 
-Contributions generally fall into two categories, and they are reviewed
-differently:
+---
 
-- **The format itself** ([`SPEC.md`](SPEC.md)) — OKF aims to be a universal,
-  vendor-neutral format, so spec changes are held to a higher bar. Open an
-  issue describing the problem and the proposed change before sending a pull
-  request, so the design can be discussed first.
-- **The reference agent, viewer, samples, and bundles** — proof-of-concept
-  tooling that demonstrates producing and consuming OKF. Ordinary pull
-  requests are welcome.
+## 1. Principios de Contribución
 
-To get started contributing:
+1. **Specification-Driven Design (SDD):** Toda modificación a la lógica del motor debe estar respaldada por la especificación [`SPEC.md`](SPEC.md) o [`specificacion_knowledge.md`](docs/SPECIFICATION_DRIVEN_DESIGN.md).
+2. **Domain-Driven Design (DDD) & Hexagonal Architecture:**
+   - La lógica de dominio reside en `src/domain/` y es agnóstica de infraestructura y librerías externas.
+   - Los adaptadores I/O residen en `src/adapters/` y se comunican a través de los puertos en `src/ports/`.
+   - La CLI pública reside en `src/cmd/okf/`.
+3. **Cero Dependencias Ocultas:** Todo binario de distribución debe compilarse de manera reproducible sin dependencias del sistema operativo (`CGO_ENABLED=0`).
 
-1. Sign a Contributor License Agreement (see details below).
-1. Fork the repo, develop and test your code changes.
-1. Ensure that your code adheres to the existing style.
-1. Ensure that your code has an appropriate set of unit tests which all pass.
-1. Ensure that all tests pass by running `.venv/bin/pytest` (see
-   [README.md](README.md) for environment setup).
-1. Submit a pull request.
+---
 
-## Contributor License Agreement
+## 2. Configuración del Entorno de Desarrollo
 
-Contributions to this project must be accompanied by a Contributor License
-Agreement. You (or your employer) retain the copyright to your contribution;
-this simply gives us permission to use and redistribute your contributions as
-part of the project. Head over to <https://cla.developers.google.com/> to see
-your current agreements on file or to sign a new one.
+### Requisitos
+- **Go:** 1.22 o superior.
+- **Git:** 2.30+ con soporte de firmado de tags.
 
-You generally only need to submit a CLA once, so if you've already submitted one
-(even if it was for a different project), you probably don't need to do it
-again.
+### Comandos Clave de Desarrollo
+```bash
+# Ejecutar todas las pruebas unitarias y de dominio con detector de condiciones de carrera
+cd src
+go test -v -race ./...
 
-## Code reviews
+# Compilar localmente la CLI okf
+go build -o ../bin/okf ./cmd/okf
 
-All submissions, including submissions by project members, require review. We
-use GitHub pull requests for this purpose. Consult
-[GitHub Help](https://help.github.com/articles/about-pull-requests/) for more
-information on using pull requests.
+# Probar la CLI local
+../bin/okf version
+../bin/okf validate ../testdata/bundles/calidad_aire.md
+```
+
+---
+
+## 3. Políticas de Versionado y Pre-lanzamientos
+
+Seguimos **Semantic Versioning 2.0 (SemVer)**:
+- **Mayor (`v1.0.0`):** Cambios incompatibles en la especificación, contratos o CLI.
+- **Menor (`v0.2.0`):** Nuevas funcionalidades, resolutores o validadores retrocompatibles.
+- **Parche (`v0.2.1`):** Correcciones de errores y optimizaciones retrocompatibles.
+- **Versiones de prueba (`-alpha.N`, `-beta.N`, `-rc.N`):** Pre-releases automáticos en GitHub Releases al subir tags con guion.
+
+Consulta la guía detallada en [`docs/VERSIONADO_Y_LANZAMIENTOS.md`](docs/VERSIONADO_Y_LANZAMIENTOS.md).
