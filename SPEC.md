@@ -1114,6 +1114,44 @@ Engines MUST accept both single-quoted `'bolivia:elecciones:votos'` and double-q
 
 ---
 
+
+### 13.6 Ultra-Lightweight Catalog Profile (`llms.txt` / `index.md` Conformance)
+
+To maximize accessibility, democratize data publishing, and eliminate the barrier of running heavy catalog infrastructure (e.g., CKAN, Socrata), ODKF v0.2 specifies an **Ultra-Lightweight Catalog Profile** based on plain text Markdown files (`llms.txt` or root `index.md`).
+
+#### 13.6.1 The Tri-Readable Principle
+Conforming catalogs MUST satisfy three reading modalities simultaneously:
+1. **Human-Readable:** Renderable in any text editor, web browser, or static file viewer without proprietary tooling.
+2. **Machine-Readable:** Parsable deterministically into typed objects, extracting catalog identifiers, dataset links, resource names, and cryptographic digests.
+3. **AI-Readable:** Directly consumable by Large Language Model (LLM) agents within bounded context windows, providing explicit factual grounding to prevent hallucinations.
+
+#### 13.6.2 Canonical Syntax & Grammar
+
+An ultra-lightweight catalog file (demonstrated in production at `https://datosbolivia.github.io/llms.txt`) MUST adhere to the following layout:
+
+```markdown
+# <Catalog Name>
+> <Descriptive Summary and Sovereign Scope>
+
+Este archivo expone el catálogo federado de datos abiertos conforme al estándar llms.txt y OKF v0.2.
+
+## Información y Documentación del Proyecto
+- [<Doc Title>](<relative_or_absolute_url>): <Summary>
+
+## Catálogo de Datasets Federados (Open Knowledge Format v0.2)
+- [<Dataset Title>](<relative_or_absolute_url_to_node_index_md>): <Abstract>. (Dominio: <Domain Name>. Recursos: <res_1>, <res_2>)
+```
+
+#### 13.6.3 Engine Conformance & Translation
+
+Conforming consumers and SDK engines (such as `datamesh-sdk`) MUST:
+1. Accept direct URLs ending in `/llms.txt`, `/index.md`, or `/catalog.yaml`.
+2. Automatically parse list items matching the pattern `- [<title>](<url>): <desc>` into registered `dcat:Dataset` instances.
+3. Parse the parenthesized metadata `(Dominio: ... Recursos: ...)` to construct the canonical triads `[catalog:dataset:resource]`.
+4. Support instant zero-cost hosting over static web servers, GitHub Pages, or S3 buckets without requiring any backend database.
+
+---
+
 ## 14. Validation Specification & Rule Engine
 
 A conforming OKF/ODKF validator MUST execute the following rule suite and report violations with severity (`ERROR` vs `WARNING`):
@@ -1127,3 +1165,177 @@ A conforming OKF/ODKF validator MUST execute the following rule suite and report
 7. **RULE-07 (Bundle Structure):** A bundle directory must contain at least one `.md` concept. Circular links between concepts produce an `ERROR`.
 8. **RULE-08 (Triad Syntax):** A canonical triad must have 2 or 3 components matching `^[a-zA-Z0-9_\-\.]+:[a-zA-Z0-9_\-\. ]+(:[a-zA-Z0-9_\-\. ]+)?$`. Invalid format is an `ERROR`.
 
+---
+
+## 15. Decentralized & Peer-to-Peer (P2P) Network Specification (OKF-P2P)
+
+To eliminate single points of failure, resist censorship, and guarantee data sovereignty without relying on centralized cloud providers, the Open Knowledge Format specifies a native **Peer-to-Peer (P2P) and Distributed Network Protocol**.
+
+### 15.1 Node Identity & Content Addressing
+
+1. **Sovereign Node Identity (`NodeID`):**
+   - Each sovereign node in the OKF network possesses a cryptographic key pair (Ed25519).
+   - The canonical `NodeID` is derived as the multihash digest of the node's public key (e.g., `12D3KooW...` format compatible with libp2p PeerIDs).
+   - Nodes sign all catalog announcements, metadata manifests, and resolution answers with this private key.
+
+2. **Immutable Content Addressing (CID):**
+   - Every physical resource (static Parquet, CSV, or manifest) is addressed by its cryptographic content identifier (multihash SHA-256 or BLAKE3).
+   - The data address depends strictly on its bit content, ensuring zero-tampering guarantees across distributed peers.
+
+### 15.2 Decentralized Naming & Resolution Protocol ("Sovereign Data DNS")
+
+OKF defines a decentralized naming and query protocol analogous to the Internet Domain Name System (DNS), but operated entirely over a Distributed Hash Table (DHT) and cryptographic registries without centralized root servers (ICANN).
+
+#### 15.2.1 Resolution Syntax & Grammar
+
+Engines, CLIs, and agents MUST support the reverse-lookup query syntax:
+
+```
+<dataset>.<resource>@<catalog>
+```
+
+Or fully-qualified sovereign URI notation:
+
+```
+okf://<catalog>/<dataset>/<resource>
+```
+
+#### 15.2.2 The `okf-dig` Diagnostic and Resolution Command
+
+A conforming node or client tool implements a resolution utility (conceptually equivalent to `dig` in classic DNS):
+
+```bash
+# Querying a sovereign dataset resource
+okf-dig elecciones_2025.votos_municipales@bolivia
+
+# Diagnostic query with full cryptographic lineage and peer records
+okf-dig +trace +crypto calidad_aire.pm25_horario@lapaz_alcaldia
+```
+
+#### 15.2.3 OKF Sovereign Resource Record Types
+
+Resolution queries return typed cryptographic records:
+
+| Record Type | Name | Purpose | Example Payload |
+| :--- | :--- | :--- | :--- |
+| **`SOA`** | Start of Authority | Identifies the sovereign owner node, its public key, trust tier, and contact multiaddr. | `NodeID: 12D3... PubKey: ed25519:... Tier: tier_1_verified Serial: 2026102101` |
+| **`CAT`** | Catalog Manifest | Points to the root `metadata.yaml` CID of the catalog and its current version. | `CID: QmXoy... Version: 0.2.0 Status: active` |
+| **`RES`** | Resource Location | Physical locations where the dataset/resource can be fetched (multiaddresses, HTTP, S3, P2P Bitswap). | `Format: parquet Hash: sha256:e3b0c4... Multiaddrs: [/ip4/190.181.2.10/tcp/4001/p2p/12D3..., https://datos.gob.bo/data.parquet]` |
+| **`SCH`** | Syntactic Schema | Direct link to the Frictionless / JSON Schema contract governing the columns. | `Type: frictionless_table_schema Hash: sha256:a1b2... Path: schemas/pm25.json` |
+| **`LIN`** | Lineage & PROV-O | Activity URI, transformation script hash, and upstream inputs (`prov:wasGeneratedBy`). | `Activity: urn:uuid:... ScriptHash: sha256:9f8e... Sources: [senamhi:meteo:raw]` |
+| **`SRV`** | Dynamic Service | Connection endpoint for dynamic / streaming queries (DuckDB Flight SQL, Arrow Flight, WebSocket). | `Proto: flight-sql Port: 8443 TLS: true Auth: ssh-token` |
+
+#### 15.2.4 Resolution Process via Kademlia DHT
+
+1. **Routing lookup:** The resolving client maps the target catalog name (`<catalog>`) to its 256-bit DHT key (`SHA-256("okf:catalog:" + catalog)`).
+2. **Peer retrieval:** The client queries the nearest $k$-peers in the DHT to obtain the provider records of the sovereign node managing `<catalog>`.
+3. **Record verification:** The sovereign node returns signed `SOA` and `CAT` records. The client verifies the Ed25519 signature against trusted public keys or federated trust lists.
+4. **Sub-resource resolution:** Using the catalog's CID, the client retrieves the concept document for `<dataset>` and extracts the `RES` record for `<resource>`.
+5. **Transport selection:** The client chooses the fastest or lowest-cost transport available (local LAN peer via mDNS > direct TCP/QUIC peer > remote HTTPS fallback).
+
+### 15.3 Connectivity, Multiaddresses and Transport Protocols
+
+1. **Multiaddress Standard:**
+   Nodes and data endpoints MUST be addressable via the IETF `multiaddr` standard:
+   ```
+   /ip4/200.87.120.45/tcp/4001/p2p/12D3KooWDpJ7As7BWAbr.../okf/catalog/lapaz/dataset/aire
+   /ip6/2800:cd0:.../udp/4001/quic-v1/p2p/12D3KooW.../okf/stream/flight
+   ```
+
+2. **Transport Agnosticism:**
+   - **QUIC / UDP:** Default WAN transport for low-latency multiplexed streams and robust hole-punching.
+   - **TCP with TLS 1.3:** Enterprise fallback for networks with strict UDP filtering.
+   - **WebSockets / WebRTC:** Browser-based clients, edge dashboards, and WASM environments (e.g., DuckDB-WASM in client browsers).
+
+3. **NAT Traversal & Hole Punching:**
+   - Nodes behind residential or university NATs (typical in Bolivia) MUST implement ICE (Interactive Connectivity Establishment), STUN, and AutoNAT.
+   - When direct connection fails, Circuit Relay (Relay v2) allows mediated transport through authorized university hub nodes without compromising end-to-end payload encryption.
+
+### 15.4 GossipSub & Federated Cache Synchronization
+
+1. **Publish-Subscribe Topics:**
+   - `/okf/announce/<catalog>`: Announcements of new bundles, version bumps, and log updates.
+   - `/okf/revocation`: Real-time cryptographic revocation of compromised keys or corrupt datasets.
+   - `/okf/heartbeat`: Liveness and bandwidth capacity telemetry.
+
+2. **Peer Discovery:**
+   - **Local Discovery:** Zero-configuration discovery via mDNS within institutional networks (e.g., intra-campus university clusters).
+   - **Global Discovery:** Kademlia DHT bootstrap list maintained by academic and public consortium nodes (UDABOL, UMSA, AGETIC).
+
+### 15.5 Security, Sybil Resistance & Zero-Microdata Enforcement
+
+1. **Sybil Resistance:** Peer reputation is scored based on verifiable cryptographic proofs, historical liveness, and trust tiers. Sybil attacks cannot forge resource digests because content is uniquely tied to SHA-256 hashes.
+2. **P2P Zero-Microdata Policy:** If a concept specifies `policy: zero_microdata`, peer nodes MUST refuse binary block transfers of raw microdata to unauthorized peers, offering instead dynamic SQL aggregate queries via Flight SQL over authenticated TLS sessions.
+
+---
+
+## 16. Abstract Connector Architecture & Universal Standard Mappings
+
+### 16.1 Hexagonal Port Separation Principle
+
+Conforming to the principles of Hexagonal Architecture (Alistair Cockburn) and Domain-Driven Design (Eric Evans), the Open Knowledge Format standard specifies abstract integration contracts (**Ports**) independently of any operating system, network framework, or storage engine. Concrete execution environments (such as the downstream reference runtime `datamesh-sdk`) instantiate these ports through specific infrastructure **Adapters**.
+
+```text
++-----------------------------------------------------------------------------------+
+|                        OPEN KNOWLEDGE FORMAT (SPEC.md)                            |
+|                                                                                   |
+|  [StoragePort]        [CatalogResolverPort]       [DataProductResolverPort]       |
+|  [QueryEnginePort]    [TrustVerifierPort]         [FormatTranslatorPort]          |
++-----------------------------------------------------------------------------------+
+                                         |
+                       Implements / Inverts Dependencies
+                                         v
++-----------------------------------------------------------------------------------+
+|                       DOWNSTREAM RUNTIME (datamesh-sdk)                           |
+|                                                                                   |
+|  Storage Adapters:   LocalFile, HttpRange (RFC 7233), S3/MinIO, Kaggle, GDrive    |
+|  Catalog Adapters:   GitStatic (llms.txt), LocalDir, CKAN API, Kademlia DHT P2P   |
+|  Query Adapters:     DuckDB In-Memory (Zero-Copy), Arrow Flight SQL Client        |
+|  Trust Adapters:     SSH Agent, Ed25519 Whitelist, GitHub .keys, SHA-256 Digest   |
++-----------------------------------------------------------------------------------+
+```
+
+### 16.2 Normative Abstract Ports
+
+#### 16.2.1 `StoragePort`
+Abstract interface for binary content and range-based retrieval:
+- `read(uri: URI) -> BinaryStream`: Retrieves complete payload.
+- `range_read(uri: URI, offset: int, length: int) -> bytes`: Implements RFC 7233 byte-range reading for selective random access into composite archives (e.g., extracting central directories in ZIP files or Parquet footer metadata without full payload download).
+- `stat(uri: URI) -> ResourceMetadata`: Returns content length, MIME type, ETag/hash, and modification timestamp.
+
+#### 16.2.2 `CatalogResolverPort`
+Abstract contract for traversing federated knowledge registries:
+- `resolve(catalog_ref: URI | SovereignAddress) -> CatalogAggregate`: Fetches and validates a catalog manifest (supporting local directories, Git repositories, static HTTP endpoints, and Kademlia DHT lookups).
+- `search(query: SearchQuery, context: TraversalContext) -> List[CatalogEntry]`: Evaluates semantic and keyword queries across federated catalog trees up to $MAX\_DEPTH=8$.
+
+#### 16.2.3 `DataProductResolverPort`
+Parses and validates multi-standard manifests:
+- `parse_manifest(raw_text: str | bytes) -> DataProductAggregate`: Normalizes YAML frontmatter, JSON Schema, and Frictionless descriptors into the universal domain model.
+- `validate_contracts(aggregate: DataProductAggregate) -> ValidationVerdict`: Evaluates invariant rules PE1-PE5 and OE1-OE5.
+
+#### 16.2.4 `QueryEnginePort`
+Uniform interface for zero-copy analytical execution:
+- `execute_sql(query: SQLStatement, table_bindings: Dict[Triad, URI]) -> ArrowStream`: Executes ANSI SQL across local files, remote streams, and dynamic data services.
+- `project(uri: URI, projections: List[str], filters: List[Predicate]) -> ArrowStream`: Pushes down column selections and row filters to underlying storage engines.
+
+#### 16.2.5 `TrustVerifierPort`
+Self-sovereign trust, cryptographic verification, and provenance checking:
+- `verify_integrity(payload: BinaryStream, expected_hash: HashDigest) -> bool`: Verifies SHA-256 / BLAKE3 cryptographic integrity.
+- `verify_authorship(manifest: Manifest, signature: Signature, key_locator: KeyLocator) -> TrustVerdict`: Verifies Ed25519 or SSH cryptographic signatures against sovereign trust lists or public identity services (e.g., GitHub `.keys`).
+
+### 16.3 Universal Standard Mapping Table
+
+The Open Knowledge Format functions as a meta-index bridging disparate international data specifications:
+
+| OKF v0.2 Entity / Concept | W3C DCAT v3 | Frictionless Data Package | Apache Arrow / Parquet | W3C PROV-O | OpenAPI / Flight SQL |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Catalog** | `dcat:Catalog` | N/A (Registry) | N/A | `prov:Bundle` | N/A |
+| **Catalog Record / Sindicación** | `dcat:CatalogRecord` | N/A | N/A | `prov:Entity` | N/A |
+| **Dataset (Subdominio DDD)** | `dcat:Dataset` | `Package` (`datapackage.json`) | Dataset Namespace | `prov:Entity` | Service Scope |
+| **Recurso Estático** | `dcat:Distribution` | `Resource` (`resources[]`) | `RecordBatch` / Parquet File | N/A | N/A |
+| **Recurso Compuesto (ZIP/TAR)** | `dcat:Distribution` (`packageFormat`) | Multipart Resource | Chunked Table | N/A | Range HTTP Endpoint |
+| **Recurso Dinámico** | `dcat:DataService` | N/A | Arrow Flight Stream | `prov:Activity` | OpenAPI 3.1 / Flight SQL |
+| **Esquema Sintáctico** | `dcat:conformsTo` | `schema` (Table Schema) | `arrow.Schema` | N/A | JSON Schema / Protobuf |
+| **Anclaje Ontológico** | SKOS / Wikidata (`wd:*`) | RDF Mapping Extension | Field Metadata (`ARROW:extension`) | N/A | N/A |
+| **Linaje y Procedencia** | `prov:wasGeneratedBy` | N/A (Custom fields) | N/A | `prov:Activity`, `prov:Agent` | CWL v1.2 Workflow |
+| **Firma y Confianza** | `spdx:checksum` | `hash` (`sha256:...`) | File Metadata Checksum | `prov:wasAttributedTo` | TLS 1.3 Client Certs / SSH |
