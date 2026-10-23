@@ -1373,3 +1373,68 @@ The Open Knowledge Format functions as a meta-index bridging disparate internati
 3. **Open Extensibility Convention (`extra:`):**
    - Producers are free to attach arbitrary domain-specific metadata (e.g., geospatial ISO 19115 bounding boxes, healthcare HL7/FHIR profiles, or financial SDMX dimensions).
    - The validator permits open extensions via the inline `extra: map[string]interface{}` dictionary. Conformance (§11) guarantees that unknown keys do not invalidate a concept.
+
+---
+
+## 17. Monitored Script Execution, Background Lineage Interception, and Embedded SQLite State Store
+
+### 17.1 The Runtime Lineage Gap
+Static declaration of lineage in metadata files inevitably drifts from reality as data engineering pipelines evolve. OKF v0.2 closes this operational gap by introducing monitored runtime execution:
+1. **Terminal / CLI Runner:** `okf run <script.py|script.sh|query.sql> --target <triad>` monitors execution, intercepts environment variables, standard inputs, and registers output artifacts.
+2. **Function Decorator & Context Manager:** In language SDKs (Python, TypeScript, R), developers annotate functions (`@dm.track_lineage(target="dataset:resource")`) or wrap code blocks (`with dm.track(...):`), capturing inputs and computational steps transparently.
+
+### 17.2 Embedded SQLite Operational State Store (`lineage.db`)
+To satisfy the KISS/YAGNI principles without introducing external database servers, runtimes MUST maintain a lightweight, zero-configuration embedded SQLite database at `.datamesh/lineage.db` or `.okf/provenance.db`.
+
+```sql
+CREATE TABLE IF NOT EXISTS executions (
+    id TEXT PRIMARY KEY,
+    target_triad TEXT NOT NULL,
+    script_path TEXT,
+    entrypoint TEXT,
+    command TEXT,
+    status TEXT NOT NULL, -- 'SUCCESS', 'FAILED', 'RUNNING'
+    exit_code INTEGER,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    duration_ms INTEGER,
+    user_identity TEXT
+);
+
+CREATE TABLE IF NOT EXISTS lineage_sources (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    source_uri TEXT NOT NULL,
+    source_hash TEXT,
+    format TEXT,
+    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS lineage_transformations (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL,
+    step_name TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    query_text TEXT,
+    parameters_json TEXT,
+    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    bytes_size INTEGER NOT NULL,
+    format TEXT NOT NULL,
+    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+```
+
+### 17.3 Agent-Assisted Publishing Workflow
+The operational SQLite store acts as the episodic memory for autonomous agents:
+1. **Inspection:** Through semantic MCP tools (`datamesh_get_lineage`), an agent inspects recent execution records, artifact checksums, and upstream derivations.
+2. **Synthesis:** The agent or pipeline synthesizes the attested W3C PROV-O metadata directly into `datapackage.yaml` (`lineage: { sources, transformations, was_derived_from }`).
+3. **Publication:** The agent verifies the generated package against syntactic contracts (§6) and invokes federated publication (`dm.publish`) to make the data product available across sovereign catalogs.

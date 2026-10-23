@@ -45,6 +45,8 @@ func main() {
 	switch command {
 	case "init":
 		runInit(os.Args[2:])
+	case "run":
+		runRun(os.Args[2:])
 	case "add":
 		runAdd(os.Args[2:])
 	case "link":
@@ -367,4 +369,52 @@ func parseFlexibleFlags(fs *flag.FlagSet, args []string) {
 		}
 	}
 	_ = fs.Parse(append(flags, nonFlags...))
+}
+
+func runRun(args []string) {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	target := fs.String("target", "", "Target triad or dataset name (e.g. 'my_catalog:dataset:resource')")
+	jsonOutput := fs.Bool("json", false, "Output execution metrics as JSON")
+	bundleDir := fs.String("bundle", "", "Path to bundle root (default: auto-detected)")
+	parseFlexibleFlags(fs, args)
+
+	if len(fs.Args()) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: missing script path to execute (e.g. 'okf run pipeline.py -target my_dataset').")
+		os.Exit(1)
+	}
+
+	scriptPath := fs.Args()[0]
+	scriptArgs := fs.Args()[1:]
+
+	res, err := usecases.ExecuteScript(usecases.RunParams{
+		ScriptPath: scriptPath,
+		Target:     *target,
+		Args:       scriptArgs,
+		BundleDir:  *bundleDir,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error executing script: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *jsonOutput {
+		outBytes, _ := json.MarshalIndent(res, "", "  ")
+		fmt.Println(string(outBytes))
+	} else {
+		statusStr := "SUCCESS"
+		if !res.Success {
+			statusStr = fmt.Sprintf("FAILED (exit %d)", res.ExitCode)
+		}
+		fmt.Printf("[%s] %s -> %d ms (sha256: %s)\n", statusStr, res.ScriptPath, res.DurationMs, res.ScriptHash[:12])
+		if res.Stdout != "" {
+			fmt.Print(res.Stdout)
+		}
+		if res.Stderr != "" {
+			fmt.Fprint(os.Stderr, res.Stderr)
+		}
+	}
+
+	if !res.Success {
+		os.Exit(res.ExitCode)
+	}
 }
