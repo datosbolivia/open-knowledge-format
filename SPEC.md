@@ -1438,3 +1438,125 @@ The operational SQLite store acts as the episodic memory for autonomous agents:
 1. **Inspection:** Through semantic MCP tools (`datamesh_get_lineage`), an agent inspects recent execution records, artifact checksums, and upstream derivations.
 2. **Synthesis:** The agent or pipeline synthesizes the attested W3C PROV-O metadata directly into `datapackage.yaml` (`lineage: { sources, transformations, was_derived_from }`).
 3. **Publication:** The agent verifies the generated package against syntactic contracts (§6) and invokes federated publication (`dm.publish`) to make the data product available across sovereign catalogs.
+
+---
+
+## 18. Federated Client Storage Architecture: Declarative Configuration vs. Unified Operational State (`metadata.db`)
+
+### 18.1 Storage Partitioning Principle (Human Intent vs. Operational Cache)
+OKF v0.2 mandates a strict boundary between declarative user configuration and machine-generated operational cache:
+1. **Declarative User Configuration (`config.yaml` / `datamesh.yaml` / `trust.yaml`):**
+   - All explicit human intents, including catalog seed URLs, network timeouts, local workspace roots, query engine defaults (`duckdb`, `inmem`, `go`), and *Root Trust Anchors* (cryptographic author allowlists, SSH public key fingerprints, verification policies `strict` vs `permissive`), MUST reside in human-readable, version-controllable YAML/TOML/JSON text files.
+   - Deleting the operational cache MUST NEVER delete or alter human configuration.
+2. **Unified Operational Cache (`metadata.db`):**
+   - All high-frequency, machine-generated, derived, or ephemeral runtime data MUST reside in an embedded SQLite database (`$DATAMESH_HOME/metadata.db` or `.datamesh/metadata.db`).
+   - If `metadata.db` is purged or lost, the client runtime MUST self-heal seamlessly by re-probing endpoints, re-fetching keys, and re-downloading resources upon next access.
+
+### 18.2 Relational Schema of `metadata.db`
+The client database unifies resource caching, sovereign endpoint discovery, public key caching, and operational lineage:
+
+```sql
+-- 1. Downloaded Resource Cache
+CREATE TABLE IF NOT EXISTS cache_entries (
+    key TEXT PRIMARY KEY,
+    original_uri TEXT NOT NULL,
+    local_path TEXT NOT NULL,
+    format TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    cached_at TEXT NOT NULL,
+    etag TEXT,
+    sha256 TEXT,
+    source_service TEXT,
+    update_frequency TEXT,
+    last_accessed TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cache_uri ON cache_entries(original_uri);
+CREATE INDEX IF NOT EXISTS idx_cache_path ON cache_entries(local_path);
+
+-- 2. Sovereign Endpoint & DNS Probing Cache
+CREATE TABLE IF NOT EXISTS dns_cache (
+    host_or_triad TEXT PRIMARY KEY,
+    resolved_endpoint TEXT NOT NULL,
+    capabilities_json TEXT,         -- JSON payload from /.well-known/datamesh.json
+    auth_type TEXT DEFAULT 'none',  -- 'keycloak', 'api_key', 'none'
+    probe_status TEXT NOT NULL,     -- 'ACTIVE', 'UNREACHABLE', 'DEGRADED'
+    latency_ms INTEGER,
+    probed_at TEXT NOT NULL,
+    ttl_seconds INTEGER DEFAULT 86400
+);
+CREATE INDEX IF NOT EXISTS idx_dns_status ON dns_cache(probe_status);
+
+-- 3. Ephemeral Cryptographic Public Key Cache
+CREATE TABLE IF NOT EXISTS keys_cache (
+    identity_id TEXT NOT NULL,       -- e.g. 'github:andreschirinos'
+    fingerprint TEXT NOT NULL,      -- SHA-256 fingerprint
+    key_type TEXT NOT NULL,         -- 'ssh-ed25519', 'ssh-rsa'
+    public_key TEXT NOT NULL,       -- Raw OpenSSH public key
+    fetched_at TEXT NOT NULL,
+    ttl_seconds INTEGER DEFAULT 604800, -- 7 days
+    PRIMARY KEY(identity_id, fingerprint)
+);
+
+-- 4. Lineage Executions, Sources, Transformations, and Artifacts
+CREATE TABLE IF NOT EXISTS executions (
+    id TEXT PRIMARY KEY,
+    target_triad TEXT NOT NULL,
+    script_path TEXT,
+    entrypoint TEXT,
+    command TEXT,
+    status TEXT NOT NULL, -- 'SUCCESS', 'FAILED', 'RUNNING'
+    exit_code INTEGER,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    duration_ms INTEGER,
+    user_identity TEXT
+);
+
+CREATE TABLE IF NOT EXISTS lineage_sources (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    source_uri TEXT NOT NULL,
+    source_hash TEXT,
+    format TEXT,
+    cache_key TEXT,
+    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE,
+    FOREIGN KEY(cache_key) REFERENCES cache_entries(key) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS lineage_transformations (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL,
+    step_name TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    query_text TEXT,
+    parameters_json TEXT,
+    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    bytes_size INTEGER NOT NULL,
+    format TEXT NOT NULL,
+    cache_key TEXT,
+    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE,
+    FOREIGN KEY(cache_key) REFERENCES cache_entries(key) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_exec_target ON executions(target_triad);
+CREATE INDEX IF NOT EXISTS idx_sources_exec ON lineage_sources(execution_id);
+CREATE INDEX IF NOT EXISTS idx_sources_cache ON lineage_sources(cache_key);
+CREATE INDEX IF NOT EXISTS idx_trans_exec ON lineage_transformations(execution_id);
+CREATE INDEX IF NOT EXISTS idx_art_exec ON artifacts(execution_id);
+CREATE INDEX IF NOT EXISTS idx_art_cache ON artifacts(cache_key);
+```
+
+### 18.3 Operational Invariants & Concurrency Best Practices
+1. **Concurrency (WAL Mode):** Runtimes MUST initialize SQLite connections with `PRAGMA journal_mode = WAL;`, `PRAGMA synchronous = NORMAL;`, and a busy timeout (`PRAGMA busy_timeout = 5000;`) to prevent database lock contention across concurrent CLI commands, background agent MCP queries, and interactive analytical notebooks.
+2. **Least Recently Used (LRU) Eviction:** When local storage exceeds the configured threshold (`max_cache_size_bytes`), runtimes MUST evict unreferenced files ordered by `last_accessed ASC`.
+3. **HTTP 304 Revalidation:** For stale cached entries (`now > cached_at + ttl_seconds`), clients MUST issue conditional HTTP requests with `If-None-Match: <etag>`. Upon receiving `304 Not Modified`, the runtime updates `last_accessed` without re-downloading bytes.
+4. **Self-Healing Integrity:** If a physical cached file is deleted externally, the runtime MUST clear the stale database row and trigger a clean fetch.

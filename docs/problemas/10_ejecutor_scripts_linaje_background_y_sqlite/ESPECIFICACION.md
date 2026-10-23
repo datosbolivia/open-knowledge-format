@@ -128,6 +128,15 @@ Al completarse una ejecución con estado `SUCCESS`, el sistema DEBE permitir:
 1. **Generación Inmediata de Manifiestos:** Exportar el registro de linaje hacia la sección `lineage:` de `datapackage.yaml` conforme a W3C PROV-O (`sources`, `transformations`, `was_derived_from`).
 2. **Exposición Agéntica Semántica:** Exponer el estado en herramientas MCP (`datamesh_get_lineage`) para que un agente autónomo o asistente humano pueda verificar la calidad antes de invocar `dm.publish()`.
 
+### RULE-16 (Partición entre Configuración Declarativa y Estado Operacional)
+Toda preferencia humana, URL raíz de catálogos y anclas de confianza criptográfica (claves SSH autorizadas de publicadores, políticas de firma) DEBEN residir en archivos declarativos YAML (`config.yaml`, `trust.yaml`). La base de datos SQLite `metadata.db` se reserva estrictamente para estado operacional, índices de caché, descubrimiento de nodos DNS y telemetría de linaje. El borrado de `metadata.db` jamás debe destruir la configuración del usuario.
+
+### RULE-17 (Unificación de Metadatos en SQLite y Referenciación de Caché)
+La memoria operacional del cliente SQLite DEBE residir en `$DATAMESH_HOME/metadata.db`. Las tablas de linaje (`lineage_sources` y `artifacts`) DEBEN enlazar sus registros a la tabla `cache_entries` mediante la columna `cache_key`. Asimismo, la base de datos DEBE persistir la resolución soberana de endpoints (`dns_cache`) y la caché de claves públicas de autores (`keys_cache`).
+
+### RULE-18 (Invariantes de Concurrencia y Auto-Sanación)
+Todo runtime DEBE operar sobre `metadata.db` en modo WAL (`PRAGMA journal_mode = WAL;`) para permitir lecturas y escrituras simultáneas entre CLI, notebooks de Jupyter y servidores de agentes MCP. El motor DEBE aplicar políticas de desalojo LRU basadas en `last_accessed` y auto-sanación si un archivo en caché es eliminado físicamente del disco.
+
 ---
 
 ## 5. Referencias Bibliográficas (APA 7ma / IEEE)
