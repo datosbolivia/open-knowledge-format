@@ -19,6 +19,14 @@
       "type": "string",
       "description": "Single-line summary of the concept"
     },
+    "resource": {
+      "type": "string",
+      "description": "Canonical URI for the underlying asset"
+    },
+    "license": {
+      "type": "string",
+      "description": "Standard license identifier (SPDX or URL), for example CC-BY-4.0"
+    },
     "tags": {
       "type": "array",
       "items": { "type": "string" },
@@ -27,12 +35,142 @@
     "timestamp": {
       "type": "string",
       "format": "date-time",
-      "description": "ISO 8601 timestamp of last update"
+      "description": "Legacy v0.1 timestamp; superseded by generated.at"
     },
     "status": {
       "type": "string",
-      "enum": ["draft", "stable", "deprecated", "experimental"],
+      "description": "Lifecycle status. Recommended: draft, stable, deprecated. The vocabulary is open; consumers MUST tolerate unknown values.",
       "default": "stable"
+    },
+    "superseded_by": {
+      "type": "string",
+      "description": "Path or URI of the replacement concept when status is superseded"
+    },
+    "stale_after": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Absolute instant on/after which the content is stale"
+    },
+    "freshness": {
+      "type": "object",
+      "description": "Legacy freshness expression; expires is equivalent to stale_after",
+      "properties": {
+        "cadence": { "type": "string" },
+        "expires": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "generated": {
+      "type": "object",
+      "required": ["by"],
+      "properties": {
+        "by": {
+          "type": "string",
+          "description": "Actor that produced the content: <producer>/<version>, human:<id>, or process:<id>"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    },
+    "verified": {
+      "description": "One verification event or a list of verification events",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["by"],
+          "properties": {
+            "by": { "type": "string" },
+            "at": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["by"],
+            "properties": {
+              "by": { "type": "string" },
+              "at": { "type": "string", "format": "date-time" }
+            },
+            "additionalProperties": true
+          }
+        }
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["resource"],
+        "properties": {
+          "id": { "type": "string" },
+          "resource": { "type": "string" },
+          "title": { "type": "string" },
+          "author": { "type": "string" },
+          "usage_count": { "type": "integer", "minimum": 0 },
+          "last_modified": { "type": "string", "format": "date-time" },
+          "usage_window": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string", "format": "date-time" },
+              "to": { "type": "string", "format": "date-time" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "usage_window": {
+      "type": "object",
+      "properties": {
+        "from": { "type": "string", "format": "date-time" },
+        "to": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": true
+    },
+    "runtime": {
+      "type": "string",
+      "description": "Execution runtime for Attested Computation concepts"
+    },
+    "computation": {
+      "type": "string",
+      "description": "Path to the computation file"
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "required": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "executor": {
+      "type": "object",
+      "properties": {
+        "resource": { "type": "string" },
+        "receipt": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "attester": {
+      "type": "object",
+      "properties": {
+        "resource": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "skos": {
       "type": "array",
@@ -74,7 +212,8 @@
             "type": "object",
             "properties": {
               "url": { "type": "string" }
-            }
+            },
+            "additionalProperties": true
           }
         },
         "transformations": {
@@ -89,12 +228,14 @@
                 "type": "string",
                 "pattern": "^sha256:[a-fA-F0-9]{64}$"
               }
-            }
+            },
+            "additionalProperties": true
           }
         },
         "version": { "type": "string" },
         "updated_at": { "type": "string" }
-      }
+      },
+      "additionalProperties": true
     },
     "policy": {
       "type": "string",
