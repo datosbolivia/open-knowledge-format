@@ -78,11 +78,15 @@ func ClassifyQueryIntent(sqlQuery string) (isAggregateOnly bool, selectsRawRows 
 }
 
 // PolicyRule defines a fine-grained access constraint on a dataset, its rows, or specific columns.
+// Supports k-anonymity minimum cohort thresholds (Sweeney, 2002) and differential privacy budgets (Dwork, 2006).
 type PolicyRule struct {
 	ID            string   `json:"id" yaml:"id"`
 	Description   string   `json:"description,omitempty" yaml:"description,omitempty"`
 	AppliesTo     []string `json:"applies_to,omitempty" yaml:"applies_to,omitempty"` // Roles or trust tiers affected (e.g. ["public", "unverified"])
 	AggregateOnly bool     `json:"aggregate_only,omitempty" yaml:"aggregate_only,omitempty"`
+	MinGroupSize  int      `json:"min_group_size,omitempty" yaml:"min_group_size,omitempty"` // k-Anonymity minimum cohort threshold (e.g. HAVING COUNT(*) >= k)
+	Epsilon       float64  `json:"epsilon,omitempty" yaml:"epsilon,omitempty"`               // Differential privacy budget (optional)
+	PIIColumns    []string `json:"pii_columns,omitempty" yaml:"pii_columns,omitempty"`       // Quasi-identifiers or sensitive columns subject to suppression/masking
 	HiddenColumns []string `json:"hidden_columns,omitempty" yaml:"hidden_columns,omitempty"`
 	HashedColumns []string `json:"hashed_columns,omitempty" yaml:"hashed_columns,omitempty"`
 	RowFilters    []string `json:"row_filters,omitempty" yaml:"row_filters,omitempty"` // e.g. ["año >= 2026", "fecha >= '2026-01-01'"]
@@ -95,6 +99,19 @@ type GranularPolicy struct {
 	Rules []PolicyRule `json:"rules" yaml:"rules"`
 }
 
+// PolicySpec models the meta-specification governance contract per OKF/ODKF.
+// Just as 'contracts' references external syntactic standards (Frictionless, DCAT, OpenAPI),
+// 'policy' can either use a built-in profile shorthand ("allow_all", "zero_microdata", "deny")
+// or reference external policy specifications (W3C ODRL 2.2, OPA/Rego, XACML, W3C DPV, custom JSON/YAML).
+type PolicySpec struct {
+	Type    string                 `json:"type,omitempty" yaml:"type,omitempty"`       // "odrl", "opa", "rego", "dpv", "xacml", "okf_builtin", or any external policy standard
+	Profile string                 `json:"profile,omitempty" yaml:"profile,omitempty"` // Built-in shorthand ("allow_all", "zero_microdata", "deny") or profile URI
+	Path    string                 `json:"path,omitempty" yaml:"path,omitempty"`       // Local path to policy specification file (e.g. "policies/privacy.rego", "policies/odrl.json")
+	Ref     string                 `json:"ref,omitempty" yaml:"ref,omitempty"`        // Remote URI to policy specification
+	Rules   []PolicyRule           `json:"rules,omitempty" yaml:"rules,omitempty"`     // Optional inline granular rules
+	Inline  map[string]interface{} `json:"inline,omitempty" yaml:"inline,omitempty"`   // Arbitrary inline external specification payload
+}
+
 // EffectivePolicyProfile is the personalized subset of rules and constraints that apply to a caller.
 type EffectivePolicyProfile struct {
 	DatasetID     string   `json:"dataset_id,omitempty"`
@@ -104,6 +121,9 @@ type EffectivePolicyProfile struct {
 	Allowed       bool     `json:"allowed"`
 	Reason        string   `json:"reason,omitempty"`
 	AggregateOnly bool     `json:"aggregate_only"`
+	MinGroupSize  int      `json:"min_group_size,omitempty"`
+	Epsilon       float64  `json:"epsilon,omitempty"`
+	PIIColumns    []string `json:"pii_columns,omitempty"`
 	HiddenColumns []string `json:"hidden_columns"`
 	HashedColumns []string `json:"hashed_columns"`
 	RowFilters    []string `json:"row_filters"`
@@ -216,6 +236,13 @@ func ComputeEffectivePolicy(policy GranularPolicy, identity UserIdentity) Effect
 		}
 
 		if !isAdmin {
+			if rule.MinGroupSize > profile.MinGroupSize {
+				profile.MinGroupSize = rule.MinGroupSize
+			}
+			if rule.Epsilon > 0 && (profile.Epsilon == 0 || rule.Epsilon < profile.Epsilon) {
+				profile.Epsilon = rule.Epsilon
+			}
+			profile.PIIColumns = appendUniqueStrings(profile.PIIColumns, rule.PIIColumns...)
 			profile.HiddenColumns = appendUniqueStrings(profile.HiddenColumns, rule.HiddenColumns...)
 			profile.HashedColumns = appendUniqueStrings(profile.HashedColumns, rule.HashedColumns...)
 			profile.RowFilters = appendUniqueStrings(profile.RowFilters, rule.RowFilters...)
@@ -250,8 +277,10 @@ func EvaluateQueryWithProfile(profile EffectivePolicyProfile, sqlQuery string) P
 		}
 	}
 
-	// 1. Check for access to hidden/restricted columns
-	for _, col := range profile.HiddenColumns {
+	// 1. Check for access to hidden/restricted or unmasked PII columns
+	restrictedCols := append([]string{}, profile.HiddenColumns...)
+	restrictedCols = append(restrictedCols, profile.PIIColumns...)
+	for _, col := range restrictedCols {
 		if col == "" {
 			continue
 		}
@@ -260,7 +289,7 @@ func EvaluateQueryWithProfile(profile EffectivePolicyProfile, sqlQuery string) P
 			return PolicyDecision{
 				Allowed: false,
 				Policy:  PolicyDeny,
-				Reason:  fmt.Sprintf("Query rejected: Column '%s' is hidden/restricted for your identity tier.", col),
+				Reason:  fmt.Sprintf("Query rejected: Column '%s' is hidden/restricted or marked as PII for your identity tier.", col),
 			}
 		}
 	}
@@ -273,6 +302,30 @@ func EvaluateQueryWithProfile(profile EffectivePolicyProfile, sqlQuery string) P
 				Allowed:           false,
 				Policy:            PolicyZeroMicrodata,
 				Reason:            "Dataset access restricted under 'zero_microdata' policy. Raw individual row access (e.g. SELECT *) is prohibited. Query must contain statistical aggregations (COUNT, SUM, AVG, MIN, MAX, GROUP BY) or provide authorized digital signature/credentials.",
+				RequiresSignature: true,
+			}
+		}
+	}
+
+	// 3. Check k-anonymity minimum cohort constraint (MinGroupSize) when GROUP BY is present
+	if profile.MinGroupSize > 1 && groupByRegex.MatchString(sqlQuery) {
+		havingPattern := regexp.MustCompile(`(?i)\bHAVING\s+COUNT\s*\(\s*(?:\*|1|[a-zA-Z0-9_\.]+)\s*\)\s*>=\s*(\d+)`)
+		matches := havingPattern.FindStringSubmatch(sqlQuery)
+		if len(matches) < 2 {
+			return PolicyDecision{
+				Allowed:           false,
+				Policy:            PolicyZeroMicrodata,
+				Reason:            fmt.Sprintf("Query rejected under k-anonymity protection (min_group_size=%d): grouped queries must enforce 'HAVING COUNT(*) >= %d' to prevent singleton reconstruction attacks.", profile.MinGroupSize, profile.MinGroupSize),
+				RequiresSignature: true,
+			}
+		}
+		var declaredK int
+		_, _ = fmt.Sscanf(matches[1], "%d", &declaredK)
+		if declaredK < profile.MinGroupSize {
+			return PolicyDecision{
+				Allowed:           false,
+				Policy:            PolicyZeroMicrodata,
+				Reason:            fmt.Sprintf("Query rejected under k-anonymity protection: HAVING COUNT(*) >= %d is below required min_group_size=%d.", declaredK, profile.MinGroupSize),
 				RequiresSignature: true,
 			}
 		}

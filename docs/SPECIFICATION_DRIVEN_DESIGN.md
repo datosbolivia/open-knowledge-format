@@ -52,8 +52,8 @@ El acceso a catálogos, productos de datos y recursos en el ecosistema OKF se ri
 
 Address             = SovereignDNSAddress | CanonicalURI | TriadAddress ;
 
-(* 1. Direccionamiento DNS Soberano (P2P Reverse-Lookup) *)
-SovereignDNSAddress = ResourceId , "." , DatasetId , "@" , CatalogDomain , [ Fragment ] ;
+(* 1. Direccionamiento DNS Soberano (P2P Reverse-Lookup, SPEC.md §15.2.1) *)
+SovereignDNSAddress = DatasetId , "." , ResourceId , "@" , CatalogDomain , [ Fragment ] ;
 CatalogDomain       = Label , { "." , Label } ;
 
 (* 2. URI Canónica Estándar (RFC 3986) *)
@@ -66,7 +66,7 @@ TriadAddress        = [ CatalogId , ":" ] , DatasetId , ":" , ResourceId , [ Fra
 CatalogId           = Identifier ;
 DatasetId           = Identifier ;
 ResourceId          = Identifier ;
-Label               = LetterOrDigit , { LetterOrDigit | "-" } ;
+Label               = LetterOrDigit , { LetterOrDigit | "-" | "_" } ;
 Identifier          = ( Letter | "_" ) , { Letter | Digit | "_" | "-" } ;
 
 (* 4. Fragment Identifiers para Archivos Compuestos (RFC 3986 §3.5) *)
@@ -82,10 +82,22 @@ LetterOrDigit       = Letter | Digit ;
 ```
 
 ### 2.1 Ejemplos Válidos e Invariantes Semánticas de Direccionamiento
-1. **DNS Soberano:** `pm25_horario.calidad_aire@la_paz_alcaldia`
-2. **DNS Soberano con Fragment Identifier ZIP:** `manzanas_scz.cartografia_2024@ine_bolivia#scz_manzanas.parquet`
+1. **DNS Soberano (`<dataset>.<resource>@<catalog>`):** `calidad_aire.pm25_horario@la_paz_alcaldia`
+2. **DNS Soberano con Fragment Identifier ZIP:** `cartografia_2024.manzanas_scz@ine_bolivia#scz_manzanas.parquet`
 3. **URI Canónica:** `okf://udabol_investigacion/epidemiologia/dengue_2024`
 4. **Tríada Canónica:** `cndc:despacho_electrico:telemetria_stream`
+
+---
+
+## 2.2 Perfiles Modulares de Conformidad (*W3C QA Framework Conformance Profiles*)
+
+Siguiendo las directrices de **W3C QA Framework: Specification Guidelines (SpecGL)** sobre *Dimensiones de Variabilidad (DoV)* y las palabras clave normativas **IETF RFC 2119 / RFC 8174**, la especificación se divide en **3 perfiles acumulativos** para facilitar implementaciones ligeras sin acoplar el núcleo documental con el transporte P2P:
+
+| Nivel / Perfil | Nombre Canónico | Alcance Normativo y Capacidades Exigidas |
+| :--- | :--- | :--- |
+| **Level 0** | `level-0-core`<br>*(Core Knowledge Bundle)* | Archivos Markdown UTF-8 con YAML frontmatter (`type`), enlaces en grafo, `index.md`, `log.md`, procedencia (`sources`), confianza (`generated`, `verified`) y ciclo de vida (`status`, `stale_after`). No exige motor SQL ni red. |
+| **Level 1** | `level-1-contracts`<br>*(Data Product & Contracts Profile)* | Cumple **Level 0** + contratos sintácticos por referencia (`contracts`: Frictionless, DCAT v3, OpenAPI, CWL), tríadas canónicas (`cat:ds:res`), anclajes ontológicos (`skos`), unidades físicas (**UCUM/QUDT**), evolución semántica (`okf diff`), cómputo atestado (`okf attest`) y gobernanza `zero_microdata` con *k-anonymity* (`min_group_size`). |
+| **Level 2** | `level-2-sovereign`<br>*(Sovereign Federated / P2P Profile)* | Cumple **Level 1** + resolución `okf://` y DNS Soberano (`<dataset>.<resource>@<catalog>`), extracción selectiva *zero-copy* sobre archivos compuestos (`#fragment` vía HTTP Range RFC 7233), firmas criptográficas Ed25519/OpenSSH y descubrimiento distribuido Kademlia DHT / GossipSub. |
 
 ---
 

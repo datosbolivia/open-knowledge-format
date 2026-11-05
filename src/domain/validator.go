@@ -58,8 +58,8 @@ func (r *ValidationReport) AddIssue(code string, sev Severity, msg string, path 
 
 var (
 	sha256Regex       = regexp.MustCompile(`^sha256:[a-fA-F0-9]{64}$`)
-	triadRegex        = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+[:/][a-zA-Z0-9_\-\. ]+([:/][a-zA-Z0-9_\-\. ]+)?$`)
-	actorRegex        = regexp.MustCompile(`^([^<]+<[^>]+@[\w\.-]+>|https?://[^\s]+|agent:[a-zA-Z0-9_\-\.]+|user:[a-zA-Z0-9_\-\.]+|process:[a-zA-Z0-9_\-\.]+|human:[a-zA-Z0-9_\-\.]+)$`)
+	triadRegex        = regexp.MustCompile(`^([a-zA-Z0-9_\-\.]+[:/][a-zA-Z0-9_\-\. ]+([:/][a-zA-Z0-9_\-\. ]+)?|[a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+|okf://[a-zA-Z0-9_\-\./]+|datamesh://[a-zA-Z0-9_\-\./]+)(#[a-zA-Z0-9_\-\./]+)?$`)
+	actorRegex        = regexp.MustCompile(`^([^<]+<[^>]+@[\w\.-]+>|https?://[^\s]+|[a-zA-Z0-9_\-\.]+/[a-zA-Z0-9_\-\.]+|(agent|user|process|human|team):[a-zA-Z0-9_\-\.@/]+)$`)
 	isoDurationRegex  = regexp.MustCompile(`^P(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+S)?)?$`)
 	markdownLinkRegex = regexp.MustCompile(`\[[^\]]*\]\(([^)]+\.md)\)`)
 
@@ -69,11 +69,23 @@ var (
 		"deny":           true,
 	}
 	validContractTypes = map[string]bool{
-		"datapackage": true,
-		"dcat":        true,
-		"openapi":     true,
-		"cwl":         true,
-		"cli_tool":    true,
+		"datapackage":  true,
+		"frictionless": true,
+		"dcat":         true,
+		"openapi":      true,
+		"asyncapi":     true,
+		"cwl":          true,
+		"cli_tool":     true,
+		"json_schema":  true,
+		"sdmx":         true,
+		"ddi":          true,
+		"iso19115":     true,
+		"stac":         true,
+		"graphql":      true,
+		"flight_sql":   true,
+		"odrl":         true,
+		"opa":          true,
+		"dpv":          true,
 	}
 	validStatusMap = map[string]bool{
 		"draft":      true,
@@ -88,37 +100,102 @@ var (
 	}
 )
 
+type StringList []string
+
+func (s *StringList) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.SequenceNode {
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*s = list
+		return nil
+	}
+	if value.Kind == yaml.ScalarNode {
+		var raw string
+		if err := value.Decode(&raw); err != nil {
+			return err
+		}
+		var list []string
+		for _, part := range strings.Split(raw, ",") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				list = append(list, trimmed)
+			}
+		}
+		*s = list
+		return nil
+	}
+	return nil
+}
+
+type VerificationList []VerificationRecord
+
+func (v *VerificationList) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.SequenceNode {
+		var list []VerificationRecord
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*v = list
+		return nil
+	}
+	if value.Kind == yaml.MappingNode {
+		var single VerificationRecord
+		if err := value.Decode(&single); err != nil {
+			return err
+		}
+		*v = []VerificationRecord{single}
+		return nil
+	}
+	return nil
+}
+
+type RelationSpec struct {
+	Rel    string `yaml:"rel" json:"rel"`       // derived_from, supersedes, foreign_key, references, in_catalog
+	Target string `yaml:"target" json:"target"` // Path or URI
+}
+
 type ConceptFrontmatter struct {
 	Type         string                 `yaml:"type"`
 	Title        string                 `yaml:"title"`
 	Description  string                 `yaml:"description"`
 	Resource     string                 `yaml:"resource"`
-	Tags         []string               `yaml:"tags"`
+	Tags         StringList             `yaml:"tags"`
 	Timestamp    string                 `yaml:"timestamp"`
 	Status       string                 `yaml:"status"`
+	Supersedes   string                 `yaml:"supersedes"`
 	SupersededBy string                 `yaml:"superseded_by"`
+	StaleAfter   string                 `yaml:"stale_after"`
+	Sources      []interface{}          `yaml:"sources"`
+	Relations    []RelationSpec         `yaml:"relations"`
 	Generated    *GeneratedSpec         `yaml:"generated"`
-	Verified     []VerificationRecord   `yaml:"verified"`
+	Verified     VerificationList       `yaml:"verified"`
 	Freshness    *FreshnessSpec         `yaml:"freshness"`
 	SKOS         []string               `yaml:"skos"`
+	ExactMatch   []string               `yaml:"exact_match"`
+	CloseMatch   []string               `yaml:"close_match"`
+	Broader      []string               `yaml:"broader"`
 	Dimensions   []string               `yaml:"dimensions"`
 	Contracts    []ContractSpec         `yaml:"contracts"`
 	Lineage      *LineageSpec           `yaml:"lineage"`
-	Policy       string                 `yaml:"policy"`
+	Policy       interface{}            `yaml:"policy"`
+	Policies     []PolicySpec           `yaml:"policies"`
 	Extra        map[string]interface{} `yaml:",inline"`
 }
 
 type ContractSpec struct {
-	Type string `yaml:"type" json:"type"`
-	Path string `yaml:"path" json:"path"`
-	Ref  string `yaml:"ref" json:"ref"`
+	Type   string                 `yaml:"type" json:"type"`
+	Path   string                 `yaml:"path" json:"path"`
+	Ref    string                 `yaml:"ref" json:"ref"`
+	Inline map[string]interface{} `yaml:"inline" json:"inline"`
 }
 
 type LineageSpec struct {
-	Source          []map[string]interface{} `yaml:"source" json:"source"`
-	Transformations []TransformationSpec     `yaml:"transformations" json:"transformations"`
-	Version         string                   `yaml:"version" json:"version"`
-	UpdatedAt       string                   `yaml:"updated_at" json:"updated_at"`
+	Source          []interface{}        `yaml:"source" json:"source"`
+	Sources         []interface{}        `yaml:"sources" json:"sources"`
+	Transformations []TransformationSpec `yaml:"transformations" json:"transformations"`
+	Version         string               `yaml:"version" json:"version"`
+	UpdatedAt       string               `yaml:"updated_at" json:"updated_at"`
 }
 
 type TransformationSpec struct {
@@ -197,7 +274,7 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 		}
 	}
 
-	// RULE-04 / PE4: Syntactic Contracts
+	// RULE-04 / PE4: Syntactic & Meta-Specification Contracts
 	if normType == "dataset" && len(fm.Contracts) == 0 {
 		report.AddIssue("PE4-CONTRACT-MISSING", SeverityWarning, "Dataset concept defines no syntactic contract in 'contracts'", filePath, 1)
 	}
@@ -205,16 +282,16 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 		if strings.TrimSpace(c.Type) == "" {
 			report.AddIssue("PE4-CONTRACT-TYPE", SeverityError, fmt.Sprintf("Contract[%d] is missing 'type'", idx), filePath, 1)
 		} else if !validContractTypes[strings.ToLower(strings.TrimSpace(c.Type))] {
-			report.AddIssue("PE4-CONTRACT-UNKNOWN", SeverityWarning, fmt.Sprintf("Contract[%d] has non-standard type '%s'", idx, c.Type), filePath, 1)
+			report.AddIssue("PE4-CONTRACT-UNKNOWN", SeverityInfo, fmt.Sprintf("Contract[%d] uses custom/extensible specification type '%s'", idx, c.Type), filePath, 1)
 		}
 
 		targetRef := strings.TrimSpace(c.Path)
 		if targetRef == "" {
 			targetRef = strings.TrimSpace(c.Ref)
 		}
-		if targetRef == "" {
-			report.AddIssue("PE4-CONTRACT-PATH", SeverityError, fmt.Sprintf("Contract[%d] is missing 'path' or 'ref'", idx), filePath, 1)
-		} else if !strings.HasPrefix(targetRef, "http://") && !strings.HasPrefix(targetRef, "https://") && filePath != "" {
+		if targetRef == "" && len(c.Inline) == 0 {
+			report.AddIssue("PE4-CONTRACT-PATH", SeverityError, fmt.Sprintf("Contract[%d] must specify 'path', 'ref', or 'inline'", idx), filePath, 1)
+		} else if targetRef != "" && !strings.HasPrefix(targetRef, "http://") && !strings.HasPrefix(targetRef, "https://") && filePath != "" {
 			baseDir := filepath.Dir(filePath)
 			targetFile := filepath.Join(baseDir, targetRef)
 			if _, err := os.Stat(targetFile); os.IsNotExist(err) {
@@ -246,12 +323,63 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 		}
 	}
 
-	// RULE-06: Policy Enum
-	if strings.TrimSpace(fm.Policy) != "" {
-		pNorm := strings.ToLower(strings.TrimSpace(fm.Policy))
-		if !validPolicies[pNorm] {
-			report.AddIssue("RULE-06-POLICY-INVALID", SeverityError, fmt.Sprintf("Policy '%s' is invalid. Must be allow_all, zero_microdata, or deny", fm.Policy), filePath, 1)
+	// RULE-06: Policy Governance (Shorthand Profiles & External Meta-Specification Policies)
+	validatePolicyEntry := func(p PolicySpec, label string) {
+		if strings.TrimSpace(p.Profile) != "" {
+			pNorm := strings.ToLower(strings.TrimSpace(p.Profile))
+			if !validPolicies[pNorm] && !strings.Contains(pNorm, "://") && !strings.HasPrefix(pNorm, "urn:") {
+				report.AddIssue("RULE-06-POLICY-INVALID", SeverityError, fmt.Sprintf("%s profile '%s' is invalid. Must be allow_all, zero_microdata, deny, or a policy URI", label, p.Profile), filePath, 1)
+			}
 		}
+		targetRef := strings.TrimSpace(p.Path)
+		if targetRef == "" {
+			targetRef = strings.TrimSpace(p.Ref)
+		}
+		if strings.TrimSpace(p.Type) == "" && strings.TrimSpace(p.Profile) == "" && targetRef == "" && len(p.Rules) == 0 && len(p.Inline) == 0 {
+			report.AddIssue("RULE-06-POLICY-EMPTY", SeverityError, fmt.Sprintf("%s must define 'type', 'profile', 'path', 'ref', 'rules', or 'inline'", label), filePath, 1)
+		}
+		if targetRef != "" && !strings.HasPrefix(targetRef, "http://") && !strings.HasPrefix(targetRef, "https://") && filePath != "" {
+			baseDir := filepath.Dir(filePath)
+			targetFile := filepath.Join(baseDir, targetRef)
+			if _, err := os.Stat(targetFile); os.IsNotExist(err) {
+				report.AddIssue("RULE-06-POLICY-LOCAL-NOT-FOUND", SeverityWarning, fmt.Sprintf("Local policy path '%s' not found at '%s'", targetRef, targetFile), filePath, 1)
+			}
+		}
+	}
+
+	if fm.Policy != nil {
+		switch pv := fm.Policy.(type) {
+		case string:
+			trimmed := strings.TrimSpace(pv)
+			if trimmed != "" {
+				pNorm := strings.ToLower(trimmed)
+				isURI := strings.Contains(pNorm, "://") || strings.HasPrefix(pNorm, "urn:") || strings.HasPrefix(pNorm, "{")
+				if !validPolicies[pNorm] && !isURI {
+					report.AddIssue("RULE-06-POLICY-INVALID", SeverityError, fmt.Sprintf("Policy '%s' is invalid. Must be allow_all, zero_microdata, deny, a policy URI, or a structured policy specification", pv), filePath, 1)
+				}
+			}
+		case map[string]interface{}:
+			rawBytes, err := yaml.Marshal(pv)
+			if err == nil {
+				var ps PolicySpec
+				if err := yaml.Unmarshal(rawBytes, &ps); err == nil {
+					validatePolicyEntry(ps, "policy")
+				}
+			}
+		case []interface{}:
+			rawBytes, err := yaml.Marshal(pv)
+			if err == nil {
+				var psList []PolicySpec
+				if err := yaml.Unmarshal(rawBytes, &psList); err == nil {
+					for i, ps := range psList {
+						validatePolicyEntry(ps, fmt.Sprintf("policy[%d]", i))
+					}
+				}
+			}
+		}
+	}
+	for idx, ps := range fm.Policies {
+		validatePolicyEntry(ps, fmt.Sprintf("policies[%d]", idx))
 	}
 
 	// RULE-09: Actor Format (§7)
@@ -277,7 +405,10 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 		}
 	}
 
-	// RULE-11: ISO 8601 Timestamps & Durations (§5.1, §5.4)
+	// RULE-11: ISO 8601 Timestamps & Durations (§5.1, §5.4, §5.5)
+	if strings.TrimSpace(fm.StaleAfter) != "" && !parseFlexibleTimestamp(fm.StaleAfter) {
+		report.AddIssue("RULE-11-EXPIRES-SYNTAX", SeverityWarning, fmt.Sprintf("stale_after '%s' must be a valid ISO 8601 date or timestamp", fm.StaleAfter), filePath, 1)
+	}
 	if fm.Freshness != nil {
 		if strings.TrimSpace(fm.Freshness.Cadence) != "" {
 			if !isoDurationRegex.MatchString(strings.TrimSpace(fm.Freshness.Cadence)) {
@@ -370,6 +501,18 @@ func ValidateBundle(bundleDir string) (*ValidationReport, error) {
 					if fm.Type == "dataset" || fm.Type == "service" {
 						report.AddIssue("PE3-RESERVED-FILE", SeverityWarning, fmt.Sprintf("Reserved file '%s' defines a concept type '%s'", baseName, fm.Type), path, 1)
 					}
+					// Support Root Concept Manifests (e.g. single-dataset ODKF nodes where root index.md carries type: dcat:Dataset / dcat:DataService / dcat:CatalogRecord)
+					if baseName == "index.md" && strings.TrimSpace(fm.Type) != "" {
+						conceptCount++
+						conceptContents[path] = content
+						docReport := ValidateConceptContent(content, path)
+						if !docReport.Valid {
+							report.Valid = false
+						}
+						report.TotalErrors += docReport.TotalErrors
+						report.TotalWarnings += docReport.TotalWarnings
+						report.Issues = append(report.Issues, docReport.Issues...)
+					}
 				}
 			}
 			return nil
@@ -398,8 +541,11 @@ func ValidateBundle(bundleDir string) (*ValidationReport, error) {
 		return report, nil
 	}
 
-	// RULE-12: Directed Graph Cycle Detection across concepts in bundle
-	graph := make(map[string][]string)
+	// RULE-12: Directed Graph Cycle Detection across concepts in bundle.
+	// Distinguishes navigational body links (where cycles are valid per SPEC.md §14.5 RULE-07 -> SeverityWarning)
+	// from strict acyclic DAG relations (supersedes, superseded_by, derived_from -> SeverityError).
+	navGraph := make(map[string][]string)
+	dagGraph := make(map[string][]string)
 	for path, content := range conceptContents {
 		dir := filepath.Dir(path)
 		matches := markdownLinkRegex.FindAllStringSubmatch(content, -1)
@@ -409,47 +555,89 @@ func ValidateBundle(bundleDir string) (*ValidationReport, error) {
 				if strings.HasPrefix(targetRef, "http://") || strings.HasPrefix(targetRef, "https://") || strings.HasPrefix(targetRef, "#") {
 					continue
 				}
-				cleanTarget := filepath.Clean(filepath.Join(dir, targetRef))
+				var cleanTarget string
+				if strings.HasPrefix(targetRef, "/") {
+					cleanTarget = filepath.Clean(filepath.Join(bundleDir, strings.TrimPrefix(targetRef, "/")))
+				} else {
+					cleanTarget = filepath.Clean(filepath.Join(dir, targetRef))
+				}
 				if _, exists := conceptContents[cleanTarget]; exists && cleanTarget != path {
-					graph[path] = append(graph[path], cleanTarget)
+					navGraph[path] = append(navGraph[path], cleanTarget)
+				}
+			}
+		}
+
+		// Extract strict DAG edges from frontmatter (supersedes, superseded_by, relations[rel=derived_from|supersedes|in_catalog])
+		parts := strings.Split(content, "---")
+		if len(parts) >= 3 {
+			var fm ConceptFrontmatter
+			if err := yaml.Unmarshal([]byte(parts[1]), &fm); err == nil {
+				addDAGEdge := func(ref string) {
+					ref = strings.TrimSpace(ref)
+					if ref == "" || strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
+						return
+					}
+					var targetPath string
+					if strings.HasPrefix(ref, "/") {
+						targetPath = filepath.Clean(filepath.Join(bundleDir, strings.TrimPrefix(ref, "/")))
+					} else {
+						targetPath = filepath.Clean(filepath.Join(dir, ref))
+					}
+					if _, exists := conceptContents[targetPath]; exists && targetPath != path {
+						dagGraph[path] = append(dagGraph[path], targetPath)
+					}
+				}
+				addDAGEdge(fm.Supersedes)
+				addDAGEdge(fm.SupersededBy)
+				for _, rel := range fm.Relations {
+					rNorm := strings.ToLower(strings.TrimSpace(rel.Rel))
+					if rNorm == "derived_from" || rNorm == "supersedes" || rNorm == "in_catalog" || rNorm == "dcat:incatalog" {
+						addDAGEdge(rel.Target)
+					}
 				}
 			}
 		}
 	}
 
-	// DFS 3-color cycle detection: 0 = White (unvisited), 1 = Gray (visiting), 2 = Black (visited)
-	color := make(map[string]int)
-	var hasCycle func(node string, pathStack []string) bool
-	hasCycle = func(node string, pathStack []string) bool {
-		color[node] = 1
-		pathStack = append(pathStack, node)
+	detectGraphCycles := func(g map[string][]string, sev Severity, code string, label string) {
+		color := make(map[string]int)
+		var hasCycle func(node string, pathStack []string) bool
+		hasCycle = func(node string, pathStack []string) bool {
+			color[node] = 1
+			pathStack = append(pathStack, node)
 
-		for _, neighbor := range graph[node] {
-			if color[neighbor] == 1 {
-				cycleStr := ""
-				for _, p := range pathStack {
-					cycleStr += filepath.Base(p) + " -> "
-				}
-				cycleStr += filepath.Base(neighbor)
-				report.AddIssue("RULE-12-CIRCULAR-REFERENCE", SeverityError, fmt.Sprintf("Circular dependency detected between concepts: %s", cycleStr), node, 1)
-				return true
-			}
-			if color[neighbor] == 0 {
-				if hasCycle(neighbor, pathStack) {
+			for _, neighbor := range g[node] {
+				if color[neighbor] == 1 {
+					cycleStr := ""
+					for _, p := range pathStack {
+						cycleStr += filepath.Base(p) + " -> "
+					}
+					cycleStr += filepath.Base(neighbor)
+					report.AddIssue(code, sev, fmt.Sprintf("%s detected between concepts: %s", label, cycleStr), node, 1)
 					return true
 				}
+				if color[neighbor] == 0 {
+					if hasCycle(neighbor, pathStack) {
+						return true
+					}
+				}
+			}
+
+			color[node] = 2
+			return false
+		}
+
+		for node := range conceptContents {
+			if color[node] == 0 {
+				hasCycle(node, nil)
 			}
 		}
-
-		color[node] = 2
-		return false
 	}
 
-	for node := range conceptContents {
-		if color[node] == 0 {
-			hasCycle(node, nil)
-		}
-	}
+	// Strict DAG cycle check (ERROR)
+	detectGraphCycles(dagGraph, SeverityError, "RULE-12-DAG-CYCLE", "Acyclic DAG violation (lineage/supersession cycle)")
+	// Navigational markdown link cycle check (WARNING per SPEC.md §14.5 RULE-07)
+	detectGraphCycles(navGraph, SeverityWarning, "RULE-12-CIRCULAR-REFERENCE", "Circular dependency")
 
 	return report, nil
 }

@@ -131,3 +131,42 @@ func TestEvaluateQueryWithProfile_HiddenColumns(t *testing.T) {
 	}
 }
 
+func TestEvaluateQueryWithProfile_KAnonymityMinGroupSize(t *testing.T) {
+	policy := GranularPolicy{
+		Name: "censo_k_anonymity",
+		Rules: []PolicyRule{
+			{
+				ID:            "rule_k5",
+				Description:   "Enforce k-anonymity min_group_size=5",
+				AppliesTo:     []string{"public"},
+				AggregateOnly: true,
+				MinGroupSize:  5,
+				PIIColumns:    []string{"ci_ciudadano"},
+			},
+		},
+	}
+
+	profile := ComputeEffectivePolicy(policy, UserIdentity{Role: "public", TrustTier: "unverified"})
+
+	// 1. Grouped query without HAVING COUNT(*) >= 5 must be rejected (prevents singleton reconstruction)
+	qUnsafe := "SELECT municipio, AVG(ingreso) FROM censo WHERE edad = 43 GROUP BY municipio"
+	decUnsafe := EvaluateQueryWithProfile(profile, qUnsafe)
+	if decUnsafe.Allowed {
+		t.Fatalf("expected grouped query without HAVING COUNT(*) >= 5 to be rejected under k-anonymity")
+	}
+
+	// 2. Grouped query with HAVING COUNT(*) >= 5 must pass
+	qSafe := "SELECT municipio, AVG(ingreso) FROM censo WHERE edad = 43 GROUP BY municipio HAVING COUNT(*) >= 5"
+	decSafe := EvaluateQueryWithProfile(profile, qSafe)
+	if !decSafe.Allowed {
+		t.Fatalf("expected grouped query with HAVING COUNT(*) >= 5 to pass, got reason: %s", decSafe.Reason)
+	}
+
+	// 3. Query referencing PII column must be rejected
+	qPII := "SELECT COUNT(ci_ciudadano) FROM censo"
+	decPII := EvaluateQueryWithProfile(profile, qPII)
+	if decPII.Allowed {
+		t.Fatalf("expected query touching PII column to be rejected")
+	}
+}
+

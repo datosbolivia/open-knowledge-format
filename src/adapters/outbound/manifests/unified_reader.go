@@ -111,8 +111,11 @@ func (r *UnifiedMetadataReader) ReadNode(ctx context.Context, uriOrPath string) 
 	var candidateFiles []string
 
 	for _, c := range manifest.Contracts {
-		if c.Path != "" {
-			targetP := c.Path
+		targetP := strings.TrimSpace(c.Path)
+		if targetP == "" {
+			targetP = strings.TrimSpace(c.Ref)
+		}
+		if targetP != "" {
 			if isURL {
 				if !strings.HasPrefix(targetP, "http://") && !strings.HasPrefix(targetP, "https://") {
 					targetP = fmt.Sprintf("%s/%s", baseDir, strings.TrimPrefix(targetP, "./"))
@@ -192,13 +195,52 @@ func (r *UnifiedMetadataReader) ReadCatalog(ctx context.Context, uriOrPath strin
 	return parser.ParseCatalog(data, target)
 }
 
-// ResolveTriad resolves a canonical 'catalogo:dataset:resource' or 'dataset:resource' triad to physical URL and format.
+// ResolveTriad resolves a canonical 'catalogo:dataset:resource', Sovereign DNS '<dataset>.<resource>@<catalog>',
+// or 'okf://catalog/dataset/resource' triad to a physical URL and format, preserving #fragment identifiers.
 func (r *UnifiedMetadataReader) ResolveTriad(ctx context.Context, triad domain.ResourceTriad) (*domain.ResolvedResource, error) {
 	dataset := triad.Dataset
 	resourceName := triad.Resource
 
-	// 1. Search candidate local node directories via ReadNode (contracts-guided)
+	applyFragment := func(resPath string, resFormat string) *domain.ResolvedResource {
+		finalURI := resPath
+		finalFmt := resFormat
+		if strings.TrimSpace(triad.Fragment) != "" && !strings.Contains(finalURI, "#") {
+			frag := strings.TrimPrefix(strings.TrimSpace(triad.Fragment), "#")
+			finalURI = finalURI + "#" + frag
+			if extFmt := inferFormatFromPath(frag); extFmt != "" {
+				finalFmt = extFmt
+			}
+		} else if strings.Contains(finalURI, "#") {
+			parts := strings.SplitN(finalURI, "#", 2)
+			if extFmt := inferFormatFromPath(parts[1]); extFmt != "" {
+				finalFmt = extFmt
+			}
+		}
+		return &domain.ResolvedResource{
+			Triad:       triad,
+			PhysicalURI: finalURI,
+			Format:      finalFmt,
+		}
+	}
+
+	matchResource := func(resources []domain.Resource, target string) (*domain.Resource, bool) {
+		norm := strings.ToLower(strings.TrimSpace(target))
+		slug := domain.Slugify(target)
+		for i := range resources {
+			res := &resources[i]
+			rNorm := strings.ToLower(strings.TrimSpace(res.Name))
+			if strings.EqualFold(res.Name, target) || domain.Slugify(res.Name) == slug || (len(slug) > 3 && strings.Contains(rNorm, slug)) {
+				return res, true
+			}
+		}
+		_ = norm
+		return nil, false
+	}
+
+	// 1. Search candidate local node and bundle directories via ReadNode (contracts-guided)
 	candidateDirs := []string{
+		filepath.Join("bundles", dataset),
+		filepath.Join("..", "bundles", dataset),
 		filepath.Join("knowledge", "nodes", dataset),
 		filepath.Join("nodes", dataset),
 		filepath.Join("..", "catalogo-datamesh", "knowledge", "nodes", dataset),
@@ -206,13 +248,15 @@ func (r *UnifiedMetadataReader) ResolveTriad(ctx context.Context, triad domain.R
 
 	for _, dir := range candidateDirs {
 		if dp, err := r.ReadNode(ctx, dir); err == nil && len(dp.Resources) > 0 {
-			for _, res := range dp.Resources {
-				if strings.EqualFold(res.Name, resourceName) {
-					return &domain.ResolvedResource{
-						Triad:       triad,
-						PhysicalURI: res.Path,
-						Format:      res.Format,
-					}, nil
+			if matched, ok := matchResource(dp.Resources, resourceName); ok {
+				return applyFragment(matched.Path, matched.Format), nil
+			}
+			// If composite archive has 1 zip resource and triad specifies a #fragment, resolve to that zip + fragment
+			if strings.TrimSpace(triad.Fragment) != "" && len(dp.Resources) > 0 {
+				for _, res := range dp.Resources {
+					if res.Format == "zip" || strings.HasSuffix(strings.ToLower(res.Path), ".zip") {
+						return applyFragment(res.Path, res.Format), nil
+					}
 				}
 			}
 		}
@@ -222,20 +266,15 @@ func (r *UnifiedMetadataReader) ResolveTriad(ctx context.Context, triad domain.R
 	if r.catalogURL != "" {
 		if cat, err := r.ReadCatalog(ctx, r.catalogURL); err == nil {
 			cleanDs := strings.ToLower(dataset)
+			slugDs := domain.Slugify(dataset)
 			for _, entry := range cat.Entries {
 				u := strings.ToLower(entry.URI)
 				rUrl := strings.ToLower(entry.ResolvedURL)
 				t := strings.ToLower(entry.Title)
-				if strings.Contains(u, cleanDs) || strings.Contains(rUrl, cleanDs) || t == cleanDs || domain.Slugify(t) == cleanDs {
+				if strings.Contains(u, cleanDs) || strings.Contains(rUrl, cleanDs) || t == cleanDs || domain.Slugify(t) == slugDs {
 					if dp, err := r.ReadNode(ctx, entry.ResolvedURL); err == nil && len(dp.Resources) > 0 {
-						for _, res := range dp.Resources {
-							if strings.EqualFold(res.Name, resourceName) {
-								return &domain.ResolvedResource{
-									Triad:       triad,
-									PhysicalURI: res.Path,
-									Format:      res.Format,
-								}, nil
-							}
+						if matched, ok := matchResource(dp.Resources, resourceName); ok {
+							return applyFragment(matched.Path, matched.Format), nil
 						}
 					}
 				}
@@ -244,11 +283,7 @@ func (r *UnifiedMetadataReader) ResolveTriad(ctx context.Context, triad domain.R
 	}
 
 	// 3. Fallback to resource name directly
-	return &domain.ResolvedResource{
-		Triad:       triad,
-		PhysicalURI: resourceName,
-		Format:      inferFormatFromPath(resourceName),
-	}, nil
+	return applyFragment(resourceName, inferFormatFromPath(resourceName)), nil
 }
 
 func (r *UnifiedMetadataReader) readData(ctx context.Context, target string) ([]byte, error) {

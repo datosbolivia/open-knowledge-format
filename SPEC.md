@@ -752,15 +752,21 @@ is why both are needed.
 
 ---
 
-## 11. Conformance
+## 11. Conformance & Modular Profiles (W3C QA SpecGL)
 
-A bundle is **conformant** with OKF v0.2 if:
+In accordance with the **W3C Quality Assurance Framework: Specification Guidelines (SpecGL)** and **IETF RFC 2119 / RFC 8174**, OKF/ODKF v0.2 defines three cumulative **Conformance Profiles** (Dimensions of Variability) so lightweight tools can adopt the core format without implementing distributed P2P networking:
+
+1. **Level 0 — Core Knowledge Bundle (`level-0-core`):** Markdown + YAML frontmatter (`type`), cross-links, `index.md`, `log.md`, `sources`, `generated`, `verified`, `status`, and `stale_after` (Chapters 1–13).
+2. **Level 1 — Data Product & Contracts Profile (`level-1-contracts`):** Includes Level 0 plus `contracts` (Frictionless/DCAT/OpenAPI/CWL), canonical triads (`catalog:dataset:resource`), `skos` anchors, physical units (**UCUM/QUDT** `unit` and `aggregation_behavior`), semantic schema evolution (`okf diff`), `Attested Computation` verification (`okf attest`), and `zero_microdata` governance with *k-anonymity* (`min_group_size`).
+3. **Level 2 — Sovereign Federated / P2P Profile (`level-2-sovereign`):** Includes Level 1 plus `okf://` and `<dataset>.<resource>@<catalog>` Sovereign DNS resolution, composite archive `#fragment` extraction (RFC 7233 HTTP Range), Ed25519/OpenSSH cryptographic signatures, and Kademlia DHT / GossipSub transport (§15).
+
+A bundle is **conformant** with OKF v0.2 (`level-0-core`) if:
 
 1. Every non-reserved `.md` file in the tree contains a parseable YAML
    frontmatter block.
 2. Every frontmatter block contains a non-empty `type` field.
 3. Every reserved filename (`index.md`, `log.md`) follows the structure in
-   §8 and §9 respectively when present.
+   §8 and §9 respectively when present. In single-dataset ODKF nodes (`level-1-contracts`), a root `index.md` MAY act as the primary Root Concept Manifest when it declares an explicit `type` (e.g., `dcat:Dataset`, `dcat:DataService`, or `dcat:CatalogRecord`).
 
 When the trust, lifecycle, provenance, or computation families are
 present, producers SHOULD follow §5 through §10, and consumers:
@@ -798,15 +804,31 @@ permitted in an `index.md`). Consumers that do not understand the declared
 version SHOULD attempt best-effort consumption rather than refusing the
 bundle.
 
+### 12.1 Standardized `AttestationVerdict` Wire Format (`okf attest`)
+
+To enable deterministic CLI and consumer verification (`okf attest <concept.md> --sql <query_or_receipt>`), any conforming attester MUST emit a JSON object over `stdout` adhering to the following contract:
+
+```json
+{
+  "verdict": "verified | refuted | error",
+  "canonical_query_hash": "sha256:...",
+  "checked_at": "2026-11-05T12:00:00Z",
+  "reason": "AST/Canonical SQL match & parameter binding verified against sanctioned computation"
+}
+```
+
+### 12.2 Semantic Schema Evolution (`okf diff`)
+
+When evolving bundles or `datapackage` contracts across versions (`supersedes` / `superseded_by`), `okf diff <bundle_v1> <bundle_v2>` classifies modifications according to **Semantic Versioning 2.0.0**:
+- **PATCH:** Documentation or prose corrections in the Markdown body without schema alterations.
+- **MINOR:** Backward-compatible additions (new optional columns, new resources, or new concept nodes).
+- **MAJOR (Breaking):** Removal or renaming of columns/resources, data type mutations, or changes to physical units (**UCUM/QUDT**) or ontological anchors (`rdfType` / `skos`).
+
 ### Considered and deferred
 
 The following are intentionally left to a future revision:
 
-- The full runtime protocol: receipt and verdict wire formats, and the
-  attestation lifecycle around a run.
-- The attester ABI, portability, and sandboxing, likely bundled with
-  future work on serving and Skills.
-- Attestation caching.
+- The attester sandboxing ABI and remote attestation caching.
 - Semantic-layer templates (Looker, dbt) where the attester comparison
   shifts from SQL equality to model-and-binding equality.
 
@@ -1105,19 +1127,39 @@ lineage:
   version: 1.0.0
   updated_at: 2026-05-01T12:00:00Z
 
-# --- Governance Policy (ODKF v0.2) ---
-policy: allow_all                      # allow_all | zero_microdata | deny
+# --- Governance Policy (ODKF v0.2 Meta-Specification) ---
+# Can be a built-in profile shorthand (allow_all | zero_microdata | deny)
+# or a structured reference/list pointing to external policy standards (W3C ODRL, OPA/Rego, W3C DPV, XACML):
+policy: allow_all
+policies:
+  - type: odrl
+    ref: https://www.w3.org/ns/odrl/2/policy.json
+  - type: opa
+    path: policies/privacy_guard.rego
 ---
 ```
 
-### 14.3 Supported Syntactic Contract Types
+### 14.3 Extensible Meta-Specification Contracts & Governance Policies
 
-| Contract `type` | Specification Standard | Purpose |
-| :--- | :--- | :--- |
-| `datapackage` | Frictionless DataPackage (v1 / v2) | Tabular schemas, typed columns, constraints, foreign keys, CSV dialect. |
-| `dcat` | W3C DCAT (v2 / v3), DCAT-AP | Public sector metadata distributions, multipart files, access URLs. |
-| `openapi` | OpenAPI v3.0 / v3.1, Swagger | HTTP REST endpoints, parameters, JSON schemas for request/response. |
-| `cwl` / `cli_tool`| Common Workflow Language `CommandLineTool` | Reproducible batch pipelines, CLI invocation arguments, outputs. |
+Because OKF/ODKF is a **meta-specification** that orchestrates existing domain standards rather than replacing them, both `contracts` and `policy` / `policies` follow an open, by-reference binding model (`type` + `path` | `ref` | `inline`):
+
+| Category | Standard `type` Examples (Open Set) | Reference Standards | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Tabular & Statistical Schemas** | `datapackage`, `sdmx`, `ddi`, `json_schema`, `avro`, `parquet` | Frictionless DataPackage (v1/v2), ISO 17369 (SDMX), DDI, JSON Schema | Tabular schemas, multidimensional cubes, physical units (UCUM/QUDT), value labels. |
+| **Catalog & Geospatial Metadata** | `dcat`, `iso19115`, `stac` | W3C DCAT (v2/v3), ISO 19115, SpatioTemporal Asset Catalog | Public sector distributions, spatial bounding boxes, CRS projections. |
+| **Service & Streaming Interfaces** | `openapi`, `asyncapi`, `graphql`, `grpc`, `flight_sql` | OpenAPI v3.0/v3.1, AsyncAPI, GraphQL, Arrow Flight SQL | Dynamic REST/RPC services, event streams, federated SQL endpoints. |
+| **Executable Pipelines** | `cwl`, `cli_tool`, `dbt` | Common Workflow Language (`CommandLineTool`), reproducible scripts | Deterministic batch transformations, CLI parameters, output bindings. |
+| **Governance & Privacy Policies** | `okf_builtin`, `odrl`, `opa`, `rego`, `dpv`, `xacml` | Built-in (`allow_all`, `zero_microdata`, `deny`), W3C ODRL 2.2, OPA/Rego, W3C DPV | Access control, $k$-anonymity cohort thresholds (`min_group_size`), differential privacy ($\epsilon$), deontic rights. |
+
+### 14.3.1 Semantic Correspondence Resolution (`ValueLabel` $\rightarrow$ `Concept` $\rightarrow$ `SKOS`)
+
+To resolve semantic heterogeneity across independent datasets without hardcoding domain-specific dictionaries into the core runtime, ODKF resolves correspondences through a three-layer semantic chain:
+
+1. **Dataset `ValueLabel` to `Concept` Mapping:** Each categorical or coded column in a dataset (`semantic_fields`) maps its raw values (`raw_value` and lexical `alt_labels`) to a local or canonical `Concept` (`concept_id`).
+2. **`Concept` to `SKOS` Ontological Anchors:** Each `Concept` document defines its SKOS relationships (`skos`, `exact_match`, `close_match`, `broader`, `notation`), linking the concept to:
+   - **External Ontologies:** Universal URIs such as Wikidata (`http://www.wikidata.org/entity/Q1491`), Schema.org, GeoNames, or QUDT.
+   - **Cross-Dataset Concepts:** Direct references to concept documents in other datasets (`exact_match: ["censo_2024:concepts/mun_020101.md"]`).
+3. **Deterministic Graph Correspondence & SQL Join Generation:** Two heterogeneous datasets $A$ and $B$ match on `ValueLabel` $v_A \in A$ and `ValueLabel` $v_B \in B$ whenever their linked concepts $C_A$ and $C_B$ either reference each other directly (`direct_concept_ref`) or share a common ontological URI in `exact_match`, `skos`, or `close_match`. The core engine compiles these correspondences into deterministic ANSI SQL `CASE ... END` projections for cross-dataset `JOIN` execution.
 
 ### 14.4 Canonical Triad Addressing
 

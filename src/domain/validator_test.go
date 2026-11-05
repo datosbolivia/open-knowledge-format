@@ -183,13 +183,99 @@ Links to [Concept A](a.md)
 
 	foundCycle := false
 	for _, issue := range report.Issues {
-		if issue.Code == "RULE-12-CIRCULAR-REFERENCE" {
+		if issue.Code == "RULE-12-CIRCULAR-REFERENCE" && issue.Severity == SeverityWarning {
 			foundCycle = true
 			break
 		}
 	}
 	if !foundCycle {
-		t.Errorf("expected RULE-12-CIRCULAR-REFERENCE error for circular dependency, none found")
+		t.Errorf("expected RULE-12-CIRCULAR-REFERENCE warning for navigational circular link, none found")
+	}
+
+	// Now test strict DAG cycle (supersedes cycle) -> must be SeverityError
+	dagA := `---
+type: concept
+title: Concept A
+supersedes: b.md
+---
+# Concept A
+`
+	dagB := `---
+type: concept
+title: Concept B
+supersedes: a.md
+---
+# Concept B
+`
+	_ = os.WriteFile(filepath.Join(tmpDir, "a.md"), []byte(dagA), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "b.md"), []byte(dagB), 0644)
+
+	dagReport, err := ValidateBundle(tmpDir)
+	if err != nil {
+		t.Fatalf("ValidateBundle DAG failed: %v", err)
+	}
+	foundDAGError := false
+	for _, issue := range dagReport.Issues {
+		if issue.Code == "RULE-12-DAG-CYCLE" && issue.Severity == SeverityError {
+			foundDAGError = true
+			break
+		}
+	}
+	if !foundDAGError {
+		t.Errorf("expected RULE-12-DAG-CYCLE error for circular supersedes DAG, none found")
+	}
+}
+
+func TestParseTriad_SovereignDNS_OKF_Fragments(t *testing.T) {
+	cases := []struct {
+		raw      string
+		wantCat  string
+		wantDs   string
+		wantRes  string
+		wantFrag string
+	}{
+		{
+			raw:      "elecciones_2025.votos_municipales@bolivia",
+			wantCat:  "bolivia",
+			wantDs:   "elecciones_2025",
+			wantRes:  "votos_municipales",
+			wantFrag: "",
+		},
+		{
+			raw:      "censo_2024_cartografia.cartografia_completa_zip@ine_bolivia#scz_manzanas.parquet",
+			wantCat:  "ine_bolivia",
+			wantDs:   "censo_2024_cartografia",
+			wantRes:  "cartografia_completa_zip",
+			wantFrag: "scz_manzanas.parquet",
+		},
+		{
+			raw:      "okf://udabol_investigacion/epidemiologia/dengue_2024#sub.csv",
+			wantCat:  "udabol_investigacion",
+			wantDs:   "epidemiologia",
+			wantRes:  "dengue_2024",
+			wantFrag: "sub.csv",
+		},
+	}
+
+	for _, tc := range cases {
+		tr, err := ParseTriad(tc.raw)
+		if err != nil {
+			t.Fatalf("ParseTriad(%q) unexpected error: %v", tc.raw, err)
+		}
+		if tr.Catalog != tc.wantCat || tr.Dataset != tc.wantDs || tr.Resource != tc.wantRes || tr.Fragment != tc.wantFrag {
+			t.Errorf("ParseTriad(%q) = %+v, want cat=%s ds=%s res=%s frag=%s",
+				tc.raw, tr, tc.wantCat, tc.wantDs, tc.wantRes, tc.wantFrag)
+		}
+	}
+}
+
+func TestDataProductValidate_OpenTypeTaxonomy(t *testing.T) {
+	openTypes := []string{"dcat:Dataset", "dcat:DataService", "Attested Computation", "BigQuery Table", "CustomDomainType"}
+	for _, typ := range openTypes {
+		_, err := NewDataProduct("id-1", Manifest{Title: "Sample", Type: typ}, "desc", nil)
+		if err != nil {
+			t.Errorf("NewDataProduct rejected valid open type %q: %v", typ, err)
+		}
 	}
 }
 
@@ -232,5 +318,42 @@ Terminal concept without outgoing links.
 		if issue.Code == "RULE-12-CIRCULAR-REFERENCE" {
 			t.Errorf("unexpected circular dependency error in DAG: %s", issue.Message)
 		}
+	}
+}
+
+func TestValidateConceptContent_MetaSpecificationPoliciesAndContracts(t *testing.T) {
+	// Meta-specification dataset & service linking multiple external contracts (SDMX, AsyncAPI, OpenAPI)
+	// and multiple external policy specifications (W3C ODRL, OPA/Rego, W3C DPV)
+	metaSpecContent := `---
+type: dcat:DataService
+title: Federated Sovereign Service
+skos:
+  - "https://www.w3.org/TR/vocab-dcat-3/#Class:Data_Service"
+contracts:
+  - type: openapi_3
+    ref: "https://example.org/specs/api.yaml"
+  - type: sdmx
+    ref: "https://example.org/specs/dsd.xml"
+  - type: custom_industry_spec
+    inline:
+      version: "1.0"
+policy:
+  type: odrl
+  ref: "https://www.w3.org/ns/odrl/2/policy.json"
+policies:
+  - type: opa
+    ref: "https://example.org/policies/authz.rego"
+  - type: dpv
+    profile: zero_microdata
+    rules:
+      - id: k_anon_5
+        aggregate_only: true
+        min_group_size: 5
+---
+# Federated Service
+`
+	rep := ValidateConceptContent(metaSpecContent, "service.md")
+	if !rep.Valid {
+		t.Fatalf("expected meta-specification concept to be valid (0 errors), got issues: %+v", rep.Issues)
 	}
 }

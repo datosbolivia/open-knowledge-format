@@ -29,6 +29,8 @@ func printUsage() {
 		"  graph       Extract directed adjacency graph of concepts and semantic relations (JSON)\n"+
 		"  index       Scan bundle and generate/update index.md for progressive disclosure\n"+
 		"  validate    Validate a concept document, bundle directory, or URL against OKF v0.2\n"+
+		"  diff        Classify schema & concept changes between two bundle versions (PATCH/MINOR/MAJOR)\n"+
+		"  attest      Verify an Attested Computation receipt and emit a JSON AttestationVerdict\n"+
 		"  visualize   Generate a self-contained interactive HTML graph visualization\n"+
 		"  inspect     Display parsed frontmatter, ontology anchors, and contracts\n"+
 		"  version     Display version and specification information\n\n"+
@@ -59,6 +61,10 @@ func main() {
 		runIndex(os.Args[2:])
 	case "validate":
 		runValidate(os.Args[2:])
+	case "diff":
+		runDiff(os.Args[2:])
+	case "attest":
+		runAttest(os.Args[2:])
 	case "visualize":
 		runVisualize(os.Args[2:])
 	case "inspect":
@@ -416,5 +422,64 @@ func runRun(args []string) {
 
 	if !res.Success {
 		os.Exit(res.ExitCode)
+	}
+}
+
+func runDiff(args []string) {
+	fs := flag.NewFlagSet("diff", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output diff report as JSON")
+	parseFlexibleFlags(fs, args)
+
+	if len(fs.Args()) < 2 {
+		fmt.Fprintln(os.Stderr, "Error: 'okf diff' requires <bundle_v1> <bundle_v2>.")
+		os.Exit(1)
+	}
+
+	report, err := usecases.DiffBundles(fs.Args()[0], fs.Args()[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error computing diff: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *jsonOutput {
+		outBytes, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(outBytes))
+		return
+	}
+
+	fmt.Printf("Semantic Diff: %s -> %s\n", report.OldTarget, report.NewTarget)
+	fmt.Printf("Recommended Version Bump: %s (%d breaking, %d minor, %d patch)\n",
+		report.RecommendedBump, report.BreakingChanges, report.MinorChanges, report.PatchChanges)
+	for _, c := range report.Changes {
+		fmt.Printf("  - [%s] (%s) %s: %s\n", c.Level, c.Category, c.Target, c.Description)
+	}
+}
+
+func runAttest(args []string) {
+	fs := flag.NewFlagSet("attest", flag.ExitOnError)
+	sqlFlag := fs.String("sql", "", "Executed SQL or JSON receipt to verify against sanctioned computation")
+	paramFlag := fs.String("param", "", "Comma-separated key=val parameter bindings (e.g. year=2026)")
+	parseFlexibleFlags(fs, args)
+
+	if len(fs.Args()) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: 'okf attest' requires a concept file path (e.g. 'okf attest computations/revenue-ytd.md').")
+		os.Exit(1)
+	}
+
+	params := make(map[string]string)
+	if strings.TrimSpace(*paramFlag) != "" {
+		for _, kv := range strings.Split(*paramFlag, ",") {
+			parts := strings.SplitN(strings.TrimSpace(kv), "=", 2)
+			if len(parts) == 2 {
+				params[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			}
+		}
+	}
+
+	verdict, err := usecases.AttestComputation(fs.Args()[0], *sqlFlag, params)
+	outBytes, _ := json.MarshalIndent(verdict, "", "  ")
+	fmt.Println(string(outBytes))
+	if err != nil || verdict.Verdict == "refuted" || verdict.Verdict == "error" {
+		os.Exit(1)
 	}
 }

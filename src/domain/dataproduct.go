@@ -8,7 +8,7 @@ import (
 
 var (
 	ErrEmptyTitle       = errors.New("data product title cannot be empty")
-	ErrInvalidType      = errors.New("data product type must be 'dataset', 'model', 'composite', 'component', or 'requirement'")
+	ErrInvalidType      = errors.New("data product type cannot be empty")
 	ErrMissingDimension = errors.New("data product must specify at least one dimension")
 )
 
@@ -106,12 +106,72 @@ type QualityCheckRule struct {
 	Params      map[string]interface{} `json:"params,omitempty" yaml:"params,omitempty"`
 }
 
-// SemanticFieldMapping maps a raw tabular column to an ODKF concept document.
-type SemanticFieldMapping struct {
-	FieldName    string            `json:"field_name" yaml:"field_name"`
-	ConceptRef   string            `json:"concept_ref,omitempty" yaml:"concept_ref,omitempty"`
-	ValueMapping map[string]string `json:"value_mapping,omitempty" yaml:"value_mapping,omitempty"`
+// ValueLabelConceptEntry maps a raw cell value or label in a dataset column to a Concept
+// and its SKOS ontological bridges (external ontologies or concepts in other datasets).
+type ValueLabelConceptEntry struct {
+	RawValue      string   `json:"raw_value" yaml:"raw_value"`                                     // Raw code or label in dataset (e.g. "Gobierno Autónomo Municipal De La Paz", "020101", "LPZ")
+	ConceptID     string   `json:"concept_id" yaml:"concept_id"`                                   // Local or canonical concept URI/path (e.g. "concepts/la_paz.md" or "concept:municipios:la_paz")
+	PrefLabel     string   `json:"pref_label,omitempty" yaml:"pref_label,omitempty"`               // skos:prefLabel
+	AltLabels     []string `json:"alt_labels,omitempty" yaml:"alt_labels,omitempty"`               // skos:altLabel / lexical variants
+	Notation      string   `json:"notation,omitempty" yaml:"notation,omitempty"`                   // skos:notation (canonical code, e.g. "020101")
+	ExactMatch    []string `json:"exact_match,omitempty" yaml:"exact_match,omitempty"`             // skos:exactMatch (external ontologies like wd:Q1491 or concepts in other datasets)
+	CloseMatch    []string `json:"close_match,omitempty" yaml:"close_match,omitempty"`             // skos:closeMatch
+	Broader       []string `json:"broader,omitempty" yaml:"broader,omitempty"`                     // skos:broader
+	Related       []string `json:"related,omitempty" yaml:"related,omitempty"`                     // skos:related
 }
+
+// ConceptNodeSKOS represents a standalone OKF concept's SKOS semantic graph links.
+// Enables resolving correspondences across two datasets that share an external SKOS anchor
+// or cross-reference each other's concept documents.
+type ConceptNodeSKOS struct {
+	ConceptID  string   `json:"concept_id" yaml:"concept_id"`                       // Concept path or URI (e.g. "bolivia:censo:concepts/la_paz.md")
+	PrefLabel  string   `json:"pref_label,omitempty" yaml:"pref_label,omitempty"`   // skos:prefLabel
+	AltLabels  []string `json:"alt_labels,omitempty" yaml:"alt_labels,omitempty"`   // skos:altLabel
+	Notation   string   `json:"notation,omitempty" yaml:"notation,omitempty"`       // skos:notation
+	SKOS       []string `json:"skos,omitempty" yaml:"skos,omitempty"`               // General SKOS / Wikidata / Schema.org URIs
+	ExactMatch []string `json:"exact_match,omitempty" yaml:"exact_match,omitempty"` // skos:exactMatch (external URIs or other dataset concept URIs)
+	CloseMatch []string `json:"close_match,omitempty" yaml:"close_match,omitempty"` // skos:closeMatch
+	Broader    []string `json:"broader,omitempty" yaml:"broader,omitempty"`         // skos:broader
+}
+
+// ConceptCorrespondence represents a resolved semantic bridge between a value label in Dataset A
+// and a matching value label in Dataset B via their linked Concepts and SKOS anchors.
+type ConceptCorrespondence struct {
+	SourceValue     string `json:"source_value"`               // ValueLabel in Dataset A
+	SourceConceptID string `json:"source_concept_id"`          // Concept linked to SourceValue
+	TargetValue     string `json:"target_value"`               // ValueLabel in Dataset B
+	TargetConceptID string `json:"target_concept_id"`          // Concept linked to TargetValue
+	SharedAnchorURI string `json:"shared_anchor_uri"`          // Shared SKOS/Wikidata URI or direct cross-dataset concept reference
+	MatchPredicate  string `json:"match_predicate"`            // "skos:exactMatch", "skos:closeMatch", "direct_concept_ref", "skos_anchor"
+}
+
+// SemanticFieldMapping maps a raw tabular column to an ODKF concept document,
+// physical unit (QUDT/UCUM), aggregation behavior, and per-ValueLabel concept mappings.
+type SemanticFieldMapping struct {
+	FieldName           string                   `json:"field_name" yaml:"field_name"`
+	ConceptRef          string                   `json:"concept_ref,omitempty" yaml:"concept_ref,omitempty"`
+	Unit                string                   `json:"unit,omitempty" yaml:"unit,omitempty"`                                 // UCUM / QUDT unit code (e.g. "ug/m3", "BOB", "MWh")
+	AggregationBehavior string                   `json:"aggregation_behavior,omitempty" yaml:"aggregation_behavior,omitempty"` // additive, semi_additive, non_additive
+	ValueMapping        map[string]string        `json:"value_mapping,omitempty" yaml:"value_mapping,omitempty"`               // Shorthand: raw_value -> concept_id
+	ValueLabels         []ValueLabelConceptEntry `json:"value_labels,omitempty" yaml:"value_labels,omitempty"`                 // Rich ValueLabel -> Concept -> SKOS definitions
+}
+
+// AttestationVerdict represents the standardized JSON wire contract for Attested Computation verification (§10.2, §12).
+type AttestationVerdict struct {
+	Verdict            string `json:"verdict" yaml:"verdict"`                                   // "verified", "refuted", or "error"
+	CanonicalQueryHash string `json:"canonical_query_hash,omitempty" yaml:"canonical_query_hash,omitempty"` // sha256:<hex64>
+	CheckedAt          string `json:"checked_at" yaml:"checked_at"`                             // ISO 8601 UTC timestamp
+	Reason             string `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+// ConformanceProfile enumerates the W3C QA Framework modular conformance levels for OKF/ODKF.
+type ConformanceProfile string
+
+const (
+	ProfileLevel0Core      ConformanceProfile = "level-0-core"      // Core Knowledge Bundle (Markdown + YAML, links, provenance, trust)
+	ProfileLevel1Contracts ConformanceProfile = "level-1-contracts" // Data Product & Contracts (Frictionless/DCAT, triads, SKOS, zero_microdata, Attested Computation)
+	ProfileLevel2Sovereign ConformanceProfile = "level-2-sovereign" // Sovereign Federated / P2P (okf://, DNS @, Ed25519/SSH, HTTP Range #fragment, Kademlia DHT)
+)
 
 // PublicationTargetResult contains the execution status for a publication target.
 type PublicationTargetResult struct {
@@ -132,27 +192,34 @@ type Signature struct {
 
 // Manifest represents the frontmatter header specified in OKF / ODKF v0.2.
 type Manifest struct {
-	Type         string                `json:"type" yaml:"type"`
-	Title        string                `json:"title" yaml:"title"`
-	Description  string                `json:"description,omitempty" yaml:"description,omitempty"`
-	Resource     string                `json:"resource,omitempty" yaml:"resource,omitempty"`
-	Tags         []string              `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Dimensions   []string              `json:"dimensions" yaml:"dimensions"`
-	Nature       string                `json:"nature,omitempty" yaml:"nature,omitempty"` // structured, semi-structured, unstructured
-	Status       string                `json:"status,omitempty" yaml:"status,omitempty"` // draft, proposed, active, deprecated, retired, superseded
-	Supersedes   string                `json:"supersedes,omitempty" yaml:"supersedes,omitempty"` // URI of superseded concept (Popperian falsability)
-	SupersededBy string                `json:"superseded_by,omitempty" yaml:"superseded_by,omitempty"`
-	Generated    *GeneratedSpec        `json:"generated,omitempty" yaml:"generated,omitempty"`
-	Verified     []VerificationRecord  `json:"verified,omitempty" yaml:"verified,omitempty"`
-	Freshness    *FreshnessSpec        `json:"freshness,omitempty" yaml:"freshness,omitempty"`
-	Contracts    []Contract            `json:"contracts,omitempty" yaml:"contracts,omitempty"`
-	Spatial      *SpatialCoverage      `json:"spatial,omitempty" yaml:"spatial,omitempty"`
-	Temporal     *TemporalCoverage     `json:"temporal,omitempty" yaml:"temporal,omitempty"`
-	Quality      *QualityProfile       `json:"quality,omitempty" yaml:"quality,omitempty"`
-	Lineage      Lineage               `json:"lineage" yaml:"lineage"`
-	Emitter      *EpistemicActor       `json:"emitter,omitempty" yaml:"emitter,omitempty"`
-	Attester     *EpistemicActor       `json:"attester,omitempty" yaml:"attester,omitempty"`
-	Signatures   []Signature           `json:"signatures,omitempty" yaml:"signatures,omitempty"`
+	Type           string                 `json:"type" yaml:"type"`
+	Title          string                 `json:"title" yaml:"title"`
+	Description    string                 `json:"description,omitempty" yaml:"description,omitempty"`
+	Resource       string                 `json:"resource,omitempty" yaml:"resource,omitempty"`
+	Tags           []string               `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Dimensions     []string               `json:"dimensions" yaml:"dimensions"`
+	SKOS           []string               `json:"skos,omitempty" yaml:"skos,omitempty"`
+	ExactMatch     []string               `json:"exact_match,omitempty" yaml:"exact_match,omitempty"`
+	CloseMatch     []string               `json:"close_match,omitempty" yaml:"close_match,omitempty"`
+	Broader        []string               `json:"broader,omitempty" yaml:"broader,omitempty"`
+	Nature         string                 `json:"nature,omitempty" yaml:"nature,omitempty"` // structured, semi-structured, unstructured
+	Status         string                 `json:"status,omitempty" yaml:"status,omitempty"` // draft, proposed, active, deprecated, retired, superseded
+	Supersedes     string                 `json:"supersedes,omitempty" yaml:"supersedes,omitempty"` // URI of superseded concept (Popperian falsability)
+	SupersededBy   string                 `json:"superseded_by,omitempty" yaml:"superseded_by,omitempty"`
+	Generated      *GeneratedSpec         `json:"generated,omitempty" yaml:"generated,omitempty"`
+	Verified       []VerificationRecord   `json:"verified,omitempty" yaml:"verified,omitempty"`
+	Freshness      *FreshnessSpec         `json:"freshness,omitempty" yaml:"freshness,omitempty"`
+	Contracts      []Contract             `json:"contracts,omitempty" yaml:"contracts,omitempty"`
+	Policy         interface{}            `json:"policy,omitempty" yaml:"policy,omitempty"`
+	Policies       []PolicySpec           `json:"policies,omitempty" yaml:"policies,omitempty"`
+	SemanticFields []SemanticFieldMapping `json:"semantic_fields,omitempty" yaml:"semantic_fields,omitempty"`
+	Spatial        *SpatialCoverage       `json:"spatial,omitempty" yaml:"spatial,omitempty"`
+	Temporal       *TemporalCoverage      `json:"temporal,omitempty" yaml:"temporal,omitempty"`
+	Quality        *QualityProfile        `json:"quality,omitempty" yaml:"quality,omitempty"`
+	Lineage        Lineage                `json:"lineage" yaml:"lineage"`
+	Emitter        *EpistemicActor        `json:"emitter,omitempty" yaml:"emitter,omitempty"`
+	Attester       *EpistemicActor        `json:"attester,omitempty" yaml:"attester,omitempty"`
+	Signatures     []Signature            `json:"signatures,omitempty" yaml:"signatures,omitempty"`
 }
 
 // DataProduct is the Aggregate Root representing an Open Knowledge Format node.
@@ -180,17 +247,13 @@ func NewDataProduct(id string, manifest Manifest, description string, resources 
 }
 
 // Validate checks domain invariants for OKF / ODKF v0.2 conformance.
+// Per SPEC.md §4.1 and §11, type values are open and unregistered; consumers MUST NOT reject unknown types.
 func (dp *DataProduct) Validate() error {
 	if strings.TrimSpace(dp.Manifest.Title) == "" {
 		return ErrEmptyTitle
 	}
 
-	validType := false
-	switch dp.Manifest.Type {
-	case "dataset", "model", "composite", "component", "requirement", "document", "concept", "playbook", "metric", "indicator", "service", "catalog":
-		validType = true
-	}
-	if !validType {
+	if strings.TrimSpace(dp.Manifest.Type) == "" {
 		return ErrInvalidType
 	}
 

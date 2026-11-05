@@ -39,14 +39,25 @@ type rawJSONDataPackage struct {
 }
 
 type rawJSONResource struct {
-	Name       string `json:"name"`
-	Path       string `json:"path"`
-	Format     string `json:"format"`
-	MediaType  string `json:"mediatype"`
-	Bytes      int64  `json:"bytes"`
-	BytesCount int64  `json:"bytes_count"`
-	Hash       string `json:"hash"`
-	HashSHA256 string `json:"hash_sha256"`
+	Name              string                   `json:"name"`
+	Path              string                   `json:"path"`
+	Format            string                   `json:"format"`
+	MediaType         string                   `json:"mediatype"`
+	Bytes             int64                    `json:"bytes"`
+	BytesCount        int64                    `json:"bytes_count"`
+	Hash              string                   `json:"hash"`
+	HashSHA256        string                   `json:"hash_sha256"`
+	InternalResources []rawJSONInternalSubRes  `json:"internal_resources"`
+	Subresources      []rawJSONInternalSubRes  `json:"subresources"`
+}
+
+type rawJSONInternalSubRes struct {
+	Name        string `json:"name"`
+	ID          string `json:"id"`
+	Subpath     string `json:"subpath"`
+	Fragment    string `json:"fragment"`
+	Format      string `json:"format"`
+	URIFragment string `json:"uri_fragment"`
 }
 
 func (p *DataPackageJSONParser) ParseManifest(ctx context.Context, data []byte, baseURL string) (*domain.PackageManifest, error) {
@@ -81,6 +92,39 @@ func (p *DataPackageJSONParser) ParseManifest(ctx context.Context, data []byte, 
 			BytesCount: bytesCount,
 			HashSHA256: sha,
 		})
+
+		// Register composite archive internal subresources (RFC 3986 #fragment)
+		subList := append(r.InternalResources, r.Subresources...)
+		for _, sub := range subList {
+			subName := strings.TrimSpace(sub.Name)
+			if subName == "" {
+				subName = strings.TrimSpace(sub.ID)
+			}
+			if subName == "" {
+				continue
+			}
+			frag := strings.TrimPrefix(strings.TrimSpace(sub.Subpath), "#")
+			if frag == "" {
+				frag = strings.TrimPrefix(strings.TrimSpace(sub.Fragment), "#")
+			}
+			if frag == "" && strings.Contains(sub.URIFragment, "#") {
+				parts := strings.SplitN(sub.URIFragment, "#", 2)
+				frag = strings.TrimSpace(parts[1])
+			}
+			subPath := resolvedPath
+			if frag != "" {
+				subPath = resolvedPath + "#" + frag
+			}
+			subFmt := strings.ToLower(strings.TrimSpace(sub.Format))
+			if subFmt == "" {
+				subFmt = inferFormatFromPath(frag)
+			}
+			parsedResources = append(parsedResources, domain.Resource{
+				Name:   subName,
+				Path:   subPath,
+				Format: subFmt,
+			})
+		}
 	}
 
 	return &domain.PackageManifest{

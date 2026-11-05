@@ -344,6 +344,91 @@ func DataMeshVerifyGitHubIdentity(didStr *C.char, claimedPubKey *C.char, githubK
 	}, nil)
 }
 
+//export DataMeshResolveConceptCorrespondences
+func DataMeshResolveConceptCorrespondences(sourceMappingJSON *C.char, targetMappingJSON *C.char, conceptCatalogJSON *C.char) *C.char {
+	ensureInit()
+	var srcMap, tgtMap domain.SemanticFieldMapping
+	if sourceMappingJSON != nil {
+		_ = json.Unmarshal([]byte(C.GoString(sourceMappingJSON)), &srcMap)
+	}
+	if targetMappingJSON != nil {
+		_ = json.Unmarshal([]byte(C.GoString(targetMappingJSON)), &tgtMap)
+	}
+	catalog := make(map[string]domain.ConceptNodeSKOS)
+	if conceptCatalogJSON != nil {
+		rawCat := strings.TrimSpace(C.GoString(conceptCatalogJSON))
+		if rawCat != "" {
+			_ = json.Unmarshal([]byte(rawCat), &catalog)
+		}
+	}
+
+	semUC := usecases.NewSemanticAlignmentUseCase()
+	corrs := semUC.ResolveConceptCorrespondences(srcMap, tgtMap, catalog)
+	return makeJSONResponse(corrs, nil)
+}
+
+//export DataMeshGenerateCrossDatasetJoinSQL
+func DataMeshGenerateCrossDatasetJoinSQL(sourceMappingJSON *C.char, sourceAlias *C.char, targetMappingJSON *C.char, targetAlias *C.char, conceptCatalogJSON *C.char) *C.char {
+	ensureInit()
+	var srcMap, tgtMap domain.SemanticFieldMapping
+	if sourceMappingJSON != nil {
+		_ = json.Unmarshal([]byte(C.GoString(sourceMappingJSON)), &srcMap)
+	}
+	if targetMappingJSON != nil {
+		_ = json.Unmarshal([]byte(C.GoString(targetMappingJSON)), &tgtMap)
+	}
+	srcAliasStr := ""
+	if sourceAlias != nil {
+		srcAliasStr = C.GoString(sourceAlias)
+	}
+	tgtAliasStr := ""
+	if targetAlias != nil {
+		tgtAliasStr = C.GoString(targetAlias)
+	}
+	catalog := make(map[string]domain.ConceptNodeSKOS)
+	if conceptCatalogJSON != nil {
+		rawCat := strings.TrimSpace(C.GoString(conceptCatalogJSON))
+		if rawCat != "" {
+			_ = json.Unmarshal([]byte(rawCat), &catalog)
+		}
+	}
+
+	semUC := usecases.NewSemanticAlignmentUseCase()
+	joinSQL := semUC.GenerateCrossDatasetJoinSQL(srcMap, srcAliasStr, tgtMap, tgtAliasStr, catalog)
+	return makeJSONResponse(map[string]interface{}{"join_sql": joinSQL}, nil)
+}
+
+//export DataMeshDiffBundles
+func DataMeshDiffBundles(oldPath *C.char, newPath *C.char) *C.char {
+	ensureInit()
+	if oldPath == nil || newPath == nil {
+		return makeJSONResponse(nil, errors.New("missing oldPath or newPath for bundle diff"))
+	}
+	rep, err := usecases.DiffBundles(C.GoString(oldPath), C.GoString(newPath))
+	return makeJSONResponse(rep, err)
+}
+
+//export DataMeshAttestComputation
+func DataMeshAttestComputation(conceptPath *C.char, actualSQL *C.char, actualResultJSON *C.char) *C.char {
+	ensureInit()
+	if conceptPath == nil {
+		return makeJSONResponse(nil, errors.New("missing conceptPath for computation attestation"))
+	}
+	sqlStr := ""
+	if actualSQL != nil {
+		sqlStr = C.GoString(actualSQL)
+	}
+	resMap := make(map[string]string)
+	if actualResultJSON != nil {
+		raw := strings.TrimSpace(C.GoString(actualResultJSON))
+		if raw != "" {
+			_ = json.Unmarshal([]byte(raw), &resMap)
+		}
+	}
+	verdict, err := usecases.AttestComputation(C.GoString(conceptPath), sqlStr, resMap)
+	return makeJSONResponse(verdict, err)
+}
+
 //export DataMeshFreeString
 func DataMeshFreeString(ptr *C.char) {
 	if ptr != nil {

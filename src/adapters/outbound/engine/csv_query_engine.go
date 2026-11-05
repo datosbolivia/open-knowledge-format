@@ -1,12 +1,15 @@
 package engine
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,6 +48,9 @@ func (e *InMemTabularQueryEngine) Execute(
 	rawData []byte,
 	format string,
 ) (*domain.QueryResult, error) {
+	if strings.EqualFold(format, "parquet") || (len(rawData) >= 4 && string(rawData[:4]) == "PAR1") {
+		return nil, fmt.Errorf("binary Parquet format requires a columnar query engine (e.g. DuckDB)")
+	}
 	start := time.Now()
 
 	reader := csv.NewReader(bytes.NewReader(rawData))
@@ -140,7 +146,8 @@ func projectColumns(headers []string, colIndex map[string]int, selectCols []stri
 	for _, col := range selectCols {
 		idx, found := colIndex[strings.ToLower(strings.TrimSpace(col))]
 		if !found {
-			return nil, nil, fmt.Errorf("column %q not found in table", col)
+			suggestions := suggestClosestStrings(col, headers, 3)
+			return nil, nil, fmt.Errorf("column %q not found in table; closest matches: %v (available columns: %v)", col, suggestions, headers)
 		}
 		outHeaders = append(outHeaders, headers[idx])
 		projectIdx = append(projectIdx, idx)
@@ -148,10 +155,78 @@ func projectColumns(headers []string, colIndex map[string]int, selectCols []stri
 	return outHeaders, projectIdx, nil
 }
 
+// suggestClosestStrings ranks candidates by Levenshtein edit distance to guide LLM agents on schema typos.
+func suggestClosestStrings(target string, candidates []string, maxResults int) []string {
+	tNorm := strings.ToLower(strings.TrimSpace(target))
+	type scored struct {
+		val  string
+		dist int
+	}
+	var list []scored
+	for _, c := range candidates {
+		cNorm := strings.ToLower(strings.TrimSpace(c))
+		list = append(list, scored{val: c, dist: levenshteinDistance(tNorm, cNorm)})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].dist == list[j].dist {
+			return list[i].val < list[j].val
+		}
+		return list[i].dist < list[j].dist
+	})
+	if maxResults > len(list) {
+		maxResults = len(list)
+	}
+	out := make([]string, 0, maxResults)
+	for i := 0; i < maxResults; i++ {
+		out = append(out, list[i].val)
+	}
+	return out
+}
+
+func levenshteinDistance(a, b string) int {
+	ra := []rune(a)
+	rb := []rune(b)
+	la, lb := len(ra), len(rb)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	dp := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		dp[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		prev := dp[0]
+		dp[0] = i
+		for j := 1; j <= lb; j++ {
+			temp := dp[j]
+			cost := 0
+			if ra[i-1] != rb[j-1] {
+				cost = 1
+			}
+			del := dp[j] + 1
+			ins := dp[j-1] + 1
+			sub := prev + cost
+			minVal := del
+			if ins < minVal {
+				minVal = ins
+			}
+			if sub < minVal {
+				minVal = sub
+			}
+			dp[j] = minVal
+			prev = temp
+		}
+	}
+	return dp[lb]
+}
+
 // ExecuteSQL executes the supported SQL subset (see domain.SimpleSelect) over a
-// single resolved CSV/TSV resource. Queries outside that subset are rejected
-// explicitly instead of silently returning wrong rows; callers needing full ANSI
-// SQL must use the DuckDB engine.
+// single resolved CSV/TSV resource (including transparent extraction from local .zip archives).
+// Queries outside that subset are rejected explicitly instead of silently returning wrong rows;
+// callers needing full ANSI SQL must use the DuckDB engine.
 func (e *InMemTabularQueryEngine) ExecuteSQL(ctx context.Context, req domain.SQLQueryRequest) (*domain.QueryResult, error) {
 	selectStmt, err := domain.ParseSimpleSelect(req.SQLQuery)
 	if err != nil {
@@ -168,9 +243,25 @@ func (e *InMemTabularQueryEngine) ExecuteSQL(ctx context.Context, req domain.SQL
 	}
 
 	localPath := strings.TrimPrefix(binding.PhysicalPath, "file://")
+	fragment := ""
+	if hashIdx := strings.Index(localPath, "#"); hashIdx != -1 {
+		fragment = strings.TrimSpace(localPath[hashIdx+1:])
+		localPath = strings.TrimSpace(localPath[:hashIdx])
+	}
+
 	rawData, err := os.ReadFile(localPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read table '%s' at %s: %w", binding.Name, binding.PhysicalPath, err)
+	}
+
+	effectiveFormat := binding.Format
+	if strings.EqualFold(filepath.Ext(localPath), ".zip") || (len(rawData) >= 4 && rawData[0] == 'P' && rawData[1] == 'K' && rawData[2] == 0x03 && rawData[3] == 0x04) {
+		extracted, extFmt, zipErr := extractZipEntryInMem(rawData, fragment)
+		if zipErr != nil {
+			return nil, zipErr
+		}
+		rawData = extracted
+		effectiveFormat = extFmt
 	}
 
 	return e.Execute(ctx, domain.QueryRequest{
@@ -179,7 +270,49 @@ func (e *InMemTabularQueryEngine) ExecuteSQL(ctx context.Context, req domain.SQL
 		Select:      selectStmt.Columns,
 		Filters:     selectStmt.Where,
 		Limit:       selectStmt.Limit,
-	}, rawData, binding.Format)
+	}, rawData, effectiveFormat)
+}
+
+func extractZipEntryInMem(zipData []byte, fragment string) ([]byte, string, error) {
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to open ZIP archive: %w", err)
+	}
+	cleanFrag := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(fragment), "#"))
+	var selected *zip.File
+	var names []string
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		names = append(names, f.Name)
+		fLower := strings.ToLower(strings.TrimPrefix(f.Name, "/"))
+		if cleanFrag != "" {
+			if fLower == cleanFrag || strings.ToLower(filepath.Base(f.Name)) == cleanFrag {
+				selected = f
+				break
+			}
+		} else if selected == nil {
+			selected = f
+		}
+	}
+	if selected == nil {
+		return nil, "", fmt.Errorf("subresource %q not found inside ZIP archive; available files: %v", fragment, names)
+	}
+	rc, err := selected.Open()
+	if err != nil {
+		return nil, "", err
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, "", err
+	}
+	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(selected.Name)), ".")
+	if ext == "" {
+		ext = "csv"
+	}
+	return data, ext, nil
 }
 
 // selectSingleBinding resolves the single table referenced by the query from the

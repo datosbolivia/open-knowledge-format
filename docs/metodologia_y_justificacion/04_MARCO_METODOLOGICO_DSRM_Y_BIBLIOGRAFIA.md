@@ -74,3 +74,18 @@ Para un proyecto de grado en Ingeniería de Sistemas de la UDABOL, la adopción 
 ### 2.5. Tecnologías de Ejecución Analítica Embebida
 * **Raasveldt, M., & Mühleisen, H. (2019).** DuckDB: an Embeddable Analytical Database. In *SIGMOD '19* (pp. 1981-1987). ACM.
 * **Apache Software Foundation. (2023).** *Apache Arrow: A cross-language development platform for in-memory analytics*. https://arrow.apache.org/
+
+### 2.6. Ingeniería de Especificaciones Formales y Conformidad (W3C / IETF / ISO)
+* **World Wide Web Consortium (W3C). (2005).** *QA Framework: Specification Guidelines (SpecGL)*. W3C Recommendation (K. Dubost, L. Rosenthal, D. Hazaël-Massieux, & L. Henderson, Eds.). https://www.w3.org/TR/qaframe-spec/
+* **Bradner, S. (1997).** *Key words for use in RFCs to Indicate Requirement Levels* (BCP 14, RFC 2119). Internet Engineering Task Force (IETF). https://doi.org/10.17487/RFC2119
+* **Leiba, B. (2017).** *Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words* (BCP 14, RFC 8174). Internet Engineering Task Force (IETF). https://doi.org/10.17487/RFC8174
+* **International Organization for Standardization (ISO). (1996).** *ISO/IEC 14977:1996 Information technology — Syntactic metalanguage — Extended BNF*. ISO.
+* **Meyer, B. (1992).** Applying "design by contract". *Computer*, 25(10), 40-51. https://doi.org/10.1109/2.161279
+* **Preston-Werner, T. (2013).** *Semantic Versioning 2.0.0*. https://semver.org/
+
+### 2.7. Privacidad Estadística, Unidades Semánticas y Reconciliación de Entidades
+* **Sweeney, L. (2002).** *k*-anonymity: A model for protecting privacy. *International Journal of Uncertainty, Fuzziness and Knowledge-Based Systems*, 10(05), 557-570. https://doi.org/10.1142/S0218488502001648
+* **Dwork, C., McSherry, F., Nissim, K., & Smith, A. (2006).** Calibrating noise to sensitivity in private data analysis. In *Theory of Cryptography Conference (TCC)* (pp. 265-284). Springer.
+* **Schadow, G., & McDonald, C. J. (2009).** *The Unified Code for Units of Measure (UCUM)*. Regenstrief Institute & UCUM Organization. https://ucum.org/
+* **Hodgson, R., Keller, P. J., Hodges, J., & Spivak, J. (2014).** *QUDT — Quantities, Units, Dimensions and Data Types Ontologies*. https://qudt.org/
+* **Fellegi, I. P., & Sunter, A. B. (1969).** A theory for record linkage. *Journal of the American Statistical Association*, 64(328), 1183-1210.
