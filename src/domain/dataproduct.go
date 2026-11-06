@@ -233,12 +233,12 @@ type Manifest struct {
 	Title          string                 `json:"title" yaml:"title"`
 	Description    string                 `json:"description,omitempty" yaml:"description,omitempty"`
 	Resource       string                 `json:"resource,omitempty" yaml:"resource,omitempty"`
-	Tags           []string               `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Dimensions     []string               `json:"dimensions" yaml:"dimensions"`
-	SKOS           []string               `json:"skos,omitempty" yaml:"skos,omitempty"`
-	ExactMatch     []string               `json:"exact_match,omitempty" yaml:"exact_match,omitempty"`
-	CloseMatch     []string               `json:"close_match,omitempty" yaml:"close_match,omitempty"`
-	Broader        []string               `json:"broader,omitempty" yaml:"broader,omitempty"`
+	Tags           StringList             `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Dimensions     StringList             `json:"dimensions" yaml:"dimensions"`
+	SKOS           StringList             `json:"skos,omitempty" yaml:"skos,omitempty"`
+	ExactMatch     StringList             `json:"exact_match,omitempty" yaml:"exact_match,omitempty"`
+	CloseMatch     StringList             `json:"close_match,omitempty" yaml:"close_match,omitempty"`
+	Broader        StringList             `json:"broader,omitempty" yaml:"broader,omitempty"`
 	Nature         string                 `json:"nature,omitempty" yaml:"nature,omitempty"` // structured, semi-structured, unstructured
 	Status         string                 `json:"status,omitempty" yaml:"status,omitempty"` // draft, proposed, active, deprecated, retired, superseded
 	Supersedes     string                 `json:"supersedes,omitempty" yaml:"supersedes,omitempty"` // URI of superseded concept (Popperian falsability)

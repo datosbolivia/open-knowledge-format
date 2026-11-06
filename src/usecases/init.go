@@ -32,7 +32,7 @@ title: "%s"
 description: "%s"
 status: active
 generated:
-  by: "okf CLI"
+  by: "agent:okf-cli"
   at: "%s"
 ---
 # %s

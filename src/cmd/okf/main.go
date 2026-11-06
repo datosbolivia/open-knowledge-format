@@ -10,11 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datosbolivia/open-knowledge-format/src/adapters/outbound/manifests"
 	"github.com/datosbolivia/open-knowledge-format/src/domain"
 	"github.com/datosbolivia/open-knowledge-format/src/usecases"
 )
 
-const version = "0.2.0"
+const version = "0.2.2-rc.2"
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Open Knowledge Format (OKF) Engine & CLI - v%s\n"+
@@ -25,6 +26,7 @@ func printUsage() {
 		"  init        Initialize a new OKF v0.2 bundle directory structure\n"+
 		"  add         Create a new concept Markdown document with frontmatter template\n"+
 		"  link        Insert semantic link between two concepts in the knowledge graph\n"+
+		"  run         Execute a pipeline script and record provenance in log.md\n"+
 		"  audit       Audit bundle for broken links, orphan nodes, circular refs, and staleness\n"+
 		"  graph       Extract directed adjacency graph of concepts and semantic relations (JSON)\n"+
 		"  index       Scan bundle and generate/update index.md for progressive disclosure\n"+
@@ -306,19 +308,23 @@ func runValidate(args []string) {
 
 func runVisualize(args []string) {
 	fs := flag.NewFlagSet("visualize", flag.ExitOnError)
-	bundlePath := fs.String("bundle", "", "Path to the OKF bundle root directory (required)")
+	bundlePath := fs.String("bundle", "", "Path to the OKF bundle root directory")
 	outPath := fs.String("out", "", "Output HTML path (default: <bundle>/viz.html)")
 	bundleName := fs.String("name", "", "Display name for the bundle (default: directory name)")
 	parseFlexibleFlags(fs, args)
 
-	if *bundlePath == "" {
-		fmt.Fprintln(os.Stderr, "Error: --bundle is required.")
+	targetBundle := *bundlePath
+	if targetBundle == "" && len(fs.Args()) > 0 {
+		targetBundle = fs.Args()[0]
+	}
+	if targetBundle == "" {
+		fmt.Fprintln(os.Stderr, "Error: bundle directory path or --bundle is required.")
 		fs.Usage()
 		os.Exit(1)
 	}
 
 	uc := usecases.NewVisualizeUseCase()
-	stats, err := uc.Generate(*bundlePath, *outPath, *bundleName)
+	stats, err := uc.Generate(targetBundle, *outPath, *bundleName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating visualization: %v\n", err)
 		os.Exit(1)
@@ -326,7 +332,7 @@ func runVisualize(args []string) {
 
 	targetOut := *outPath
 	if targetOut == "" {
-		targetOut = filepath.Join(*bundlePath, "viz.html")
+		targetOut = filepath.Join(targetBundle, "viz.html")
 	}
 
 	fmt.Fprintf(os.Stderr, "Generated visualization: %d concept(s), %d edge(s), %d bytes -> %s\n",
@@ -334,29 +340,100 @@ func runVisualize(args []string) {
 }
 
 func runInspect(args []string) {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Error: missing concept file path.")
+	fs := flag.NewFlagSet("inspect", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output inspected node metadata and validation report as JSON")
+	parseFlexibleFlags(fs, args)
+
+	if len(fs.Args()) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: missing concept file or bundle directory path (e.g. 'okf inspect index.md').")
+		fs.Usage()
 		os.Exit(1)
 	}
 
-	target := args[0]
-	bytes, err := os.ReadFile(target)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
-		os.Exit(1)
+	target := fs.Args()[0]
+	reader := manifests.NewUnifiedMetadataReader("", 5*time.Second)
+	dp, dpErr := reader.ReadNode(context.Background(), target)
+
+	var report domain.ValidationReport
+	if fi, statErr := os.Stat(target); statErr == nil && !fi.IsDir() {
+		if rawBytes, rErr := os.ReadFile(target); rErr == nil {
+			if r := domain.ValidateConceptContent(string(rawBytes), target); r != nil {
+				report = *r
+			}
+		}
+	} else {
+		valUC := usecases.NewValidateUseCase(5 * time.Second)
+		if r, vErr := valUC.Validate(context.Background(), target); vErr == nil && r != nil {
+			report = *r
+		}
 	}
 
-	parts := strings.Split(string(bytes), "---")
-	if len(parts) < 3 {
-		fmt.Fprintln(os.Stderr, "Error: no YAML frontmatter delimiters '---' found.")
-		os.Exit(1)
+	if *jsonOutput {
+		payload := map[string]interface{}{
+			"target":     target,
+			"valid":      report.Valid,
+			"validation": report,
+		}
+		if dpErr == nil && dp != nil {
+			payload["dataproduct"] = dp
+		}
+		outBytes, _ := json.MarshalIndent(payload, "", "  ")
+		fmt.Println(string(outBytes))
+		return
 	}
 
-	report := domain.ValidateConceptContent(string(bytes), target)
-	fmt.Printf("Concept: %s\n", target)
-	fmt.Printf("Valid: %t (Errors: %d, Warnings: %d)\n", report.Valid, report.TotalErrors, report.TotalWarnings)
+	fmt.Printf("Target:  %s\n", target)
+	if dpErr == nil && dp != nil {
+		fmt.Printf("Title:   %s\n", dp.Manifest.Title)
+		fmt.Printf("Type:    %s\n", dp.Manifest.Type)
+		if dp.Manifest.Status != "" {
+			fmt.Printf("Status:  %s\n", dp.Manifest.Status)
+		}
+		if len(dp.Manifest.Dimensions) > 0 {
+			fmt.Printf("Dimensions: %s\n", strings.Join(dp.Manifest.Dimensions, ", "))
+		}
+		anchors := append([]string{}, dp.Manifest.SKOS...)
+		anchors = append(anchors, dp.Manifest.ExactMatch...)
+		if len(anchors) > 0 {
+			fmt.Printf("Ontology Anchors (SKOS): %s\n", strings.Join(anchors, ", "))
+		}
+		if len(dp.Manifest.Contracts) > 0 {
+			fmt.Printf("Contracts (%d):\n", len(dp.Manifest.Contracts))
+			for _, c := range dp.Manifest.Contracts {
+				ref := c.Path
+				if ref == "" {
+					ref = c.Ref
+				}
+				if c.Binary != "" {
+					fmt.Printf("  - type=%s binary=\"%s %s\"\n", c.Type, c.Binary, c.Subcommand)
+				} else {
+					fmt.Printf("  - type=%s path=%s\n", c.Type, ref)
+				}
+			}
+		}
+		if len(dp.Resources) > 0 {
+			fmt.Printf("Resources (%d):\n", len(dp.Resources))
+			for _, r := range dp.Resources {
+				fmt.Printf("  - %s (%s): %s [%d schema field(s)]\n", r.Name, r.Format, r.Path, len(r.Fields))
+			}
+		}
+	}
+	fmt.Printf("Valid:   %t (Errors: %d, Warnings: %d)\n", report.Valid, report.TotalErrors, report.TotalWarnings)
 	for _, issue := range report.Issues {
 		fmt.Printf("  - [%s] %s: %s\n", issue.Severity, issue.Code, issue.Message)
+	}
+}
+
+func isBooleanFlag(arg string) bool {
+	clean := strings.TrimLeft(strings.TrimSpace(arg), "-")
+	if idx := strings.Index(clean, "="); idx != -1 {
+		return true
+	}
+	switch clean {
+	case "json", "strict", "v", "quiet", "h", "help":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -366,7 +443,7 @@ func parseFlexibleFlags(fs *flag.FlagSet, args []string) {
 		if strings.HasPrefix(args[i], "-") {
 			flags = append(flags, args[i])
 			// If not a bool flag and next token doesn't start with '-'
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			if !isBooleanFlag(args[i]) && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				flags = append(flags, args[i+1])
 				i++
 			}

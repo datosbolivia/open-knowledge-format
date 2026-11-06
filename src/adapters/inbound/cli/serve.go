@@ -39,10 +39,44 @@ func StartDataMeshServer(
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "ok",
 			"service": "datamesh-server",
-			"version": "0.2.0",
+			"version": "0.2.2-rc.2",
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
 	})
+
+	// 1b. Standardized Well-Known Discovery (/.well-known/datamesh.json & /.well-known/okf.json)
+	wellKnownHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		enableCorsHeaders(w)
+		origin := fmt.Sprintf("http://%s:%s", cfg.Host, cfg.Port)
+		if r.Host != "" {
+			origin = fmt.Sprintf("http://%s", r.Host)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"schema_version": "0.2.2",
+			"catalog": map[string]interface{}{
+				"name":         "datamesh_sovereign_node",
+				"title":        "DataMesh Sovereign Node",
+				"type":         "okf",
+				"catalog_url":  origin + "/api/catalog",
+				"api_endpoint": origin + "/api/sql",
+				"description":  "Sovereign DataMesh HTTP, SQL & MCP Node",
+			},
+			"auth": map[string]interface{}{
+				"type":     "none",
+				"required": false,
+			},
+			"capabilities": map[string]interface{}{
+				"search":          true,
+				"sql_query":       true,
+				"knowledge_graph": true,
+				"mcp":             cfg.EnableMcp,
+				"proxy":           cfg.EnableProxy,
+			},
+		})
+	}
+	mux.HandleFunc("/.well-known/datamesh.json", wellKnownHandler)
+	mux.HandleFunc("/.well-known/okf.json", wellKnownHandler)
 
 	// 2. CORS Proxy Endpoint (/proxy?url=...)
 	mux.HandleFunc("/proxy", func(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +197,11 @@ func StartDataMeshServer(
 
 		if err := json.NewDecoder(r.Body).Decode(&rpcReq); err != nil {
 			http.Error(w, `{"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "Parse error"}}`, http.StatusOK)
+			return
+		}
+
+		if rpcReq.ID == nil || rpcReq.Method == "initialized" || (len(rpcReq.Method) >= 14 && rpcReq.Method[:14] == "notifications/") {
+			w.WriteHeader(http.StatusAccepted)
 			return
 		}
 

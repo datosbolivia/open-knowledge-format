@@ -471,3 +471,97 @@ Identificador oficial de 6 dígitos del municipio.
 		t.Errorf("expected concept title 'Código INE Municipal', got %q", conceptDP.Manifest.Title)
 	}
 }
+
+func TestExternalOWLCLIContractDoesNotEclipseDataPackageAndOpenAPIArrayResponse(t *testing.T) {
+	tmpDir := t.TempDir()
+	nodeDir := filepath.Join(tmpDir, "hub-node")
+	if err := os.MkdirAll(nodeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Put owl-cli BEFORE datapackage in contracts list to verify it does not eclipse datapackage.yaml
+	indexMD := `---
+type: dataset
+title: Hub Con CLI Externo
+dimensions:
+  - municipio
+contracts:
+  - type: owl-cli
+    path: ./owl-cli.yaml
+  - type: datapackage
+    path: ./datapackage.yaml
+  - type: openapi
+    path: ./openapi.yaml
+---
+# Hub Con CLI Externo
+`
+	if err := os.WriteFile(filepath.Join(nodeDir, "index.md"), []byte(indexMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cliYAML := `type: owl-cli
+binary: datamesh-geo
+subcommand: calc-risk
+arguments:
+  - name: cod_ine
+    flag: --cod-ine
+    type: string
+    concept: wd:Q15284
+    required: true
+output:
+  format: json
+  concept: wd:Q7944
+  description: Puntaje de riesgo
+`
+	if err := os.WriteFile(filepath.Join(nodeDir, "owl-cli.yaml"), []byte(cliYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	dpYAML := `name: hub-node
+resources:
+  - name: tabla_base
+    path: data/base.parquet
+    format: parquet
+`
+	if err := os.WriteFile(filepath.Join(nodeDir, "datapackage.yaml"), []byte(dpYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	openAPIYAML := `openapi: 3.1.0
+info:
+  title: API Array Concept
+  version: 1.0.0
+paths:
+  /v1/items:
+    get:
+      summary: Lista items
+      responses:
+        "200":
+          description: Lista
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  x-okf-concept: wd:Q186588
+`
+	if err := os.WriteFile(filepath.Join(nodeDir, "openapi.yaml"), []byte(openAPIYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reader := NewUnifiedMetadataReader("", 5*time.Second)
+	dp, err := reader.ReadNode(context.Background(), nodeDir)
+	if err != nil {
+		t.Fatalf("ReadNode failed: %v", err)
+	}
+	if len(dp.Resources) != 1 || dp.Resources[0].Name != "tabla_base" {
+		t.Fatalf("expected datapackage resource 'tabla_base' not to be eclipsed by owl-cli.yaml, got: %+v", dp.Resources)
+	}
+	if !strings.Contains(dp.Description, "datamesh-geo calc-risk") || !strings.Contains(dp.Description, "--cod-ine") {
+		t.Errorf("expected external owl-cli.yaml to be hydrated in Description, got: %s", dp.Description)
+	}
+	if !strings.Contains(dp.Description, "wd:Q186588") {
+		t.Errorf("expected OpenAPI array items x-okf-concept in Description, got: %s", dp.Description)
+	}
+}

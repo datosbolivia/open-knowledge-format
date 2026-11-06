@@ -213,6 +213,7 @@ type openAPIParameter struct {
 
 type openAPIResp struct {
 	Description string                            `yaml:"description" json:"description"`
+	Concept     string                            `yaml:"x-okf-concept" json:"x-okf-concept"`
 	Content     map[string]openAPIMediaTypeObject `yaml:"content" json:"content"`
 }
 
@@ -221,15 +222,58 @@ type openAPIMediaTypeObject struct {
 }
 
 type openAPISchemaObject struct {
-	Type       string                              `yaml:"type" json:"type"`
-	Concept    string                              `yaml:"x-okf-concept" json:"x-okf-concept"`
-	Properties map[string]openAPISchemaPropertyObj `yaml:"properties" json:"properties"`
+	Type        string                              `yaml:"type" json:"type"`
+	Description string                              `yaml:"description" json:"description"`
+	Concept     string                              `yaml:"x-okf-concept" json:"x-okf-concept"`
+	Properties  map[string]openAPISchemaPropertyObj `yaml:"properties" json:"properties"`
+	Items       *openAPISchemaObject                `yaml:"items" json:"items"`
 }
 
 type openAPISchemaPropertyObj struct {
 	Type        string `yaml:"type" json:"type"`
 	Description string `yaml:"description" json:"description"`
 	Concept     string `yaml:"x-okf-concept" json:"x-okf-concept"`
+}
+
+type externalCLIContractDoc struct {
+	Type       string                 `yaml:"type" json:"type"`
+	Binary     string                 `yaml:"binary" json:"binary"`
+	Subcommand string                 `yaml:"subcommand" json:"subcommand"`
+	Inputs     []domain.CLIInputParam `yaml:"inputs" json:"inputs"`
+	Arguments  []domain.CLIInputParam `yaml:"arguments" json:"arguments"`
+	Outputs    *domain.CLIOutputSpec  `yaml:"outputs" json:"outputs"`
+	Output     *domain.CLIOutputSpec  `yaml:"output" json:"output"`
+}
+
+// HydrateExternalCLIContract populates a Contract from an external owl-cli / okf-cli YAML or JSON file.
+func HydrateExternalCLIContract(c *domain.Contract, raw []byte) {
+	if c == nil || len(raw) == 0 {
+		return
+	}
+	var ext externalCLIContractDoc
+	if err := yaml.Unmarshal(raw, &ext); err != nil {
+		return
+	}
+	if c.Binary == "" && ext.Binary != "" {
+		c.Binary = ext.Binary
+	}
+	if c.Subcommand == "" && ext.Subcommand != "" {
+		c.Subcommand = ext.Subcommand
+	}
+	if len(c.Inputs) == 0 {
+		if len(ext.Inputs) > 0 {
+			c.Inputs = ext.Inputs
+		} else if len(ext.Arguments) > 0 {
+			c.Inputs = ext.Arguments
+		}
+	}
+	if c.Outputs == nil {
+		if ext.Outputs != nil {
+			c.Outputs = ext.Outputs
+		} else if ext.Output != nil {
+			c.Outputs = ext.Output
+		}
+	}
 }
 
 func synthesizeOpenAPIMarkdown(sourcePath string, raw []byte) string {
@@ -314,20 +358,33 @@ func synthesizeOpenAPIMarkdown(sourcePath string, raw []byte) string {
 				}
 			}
 
-			// Extract response properties for 200 / 201 / default
-			for status, resp := range op.Responses {
+			// Extract response properties and x-okf-concept for 200 / 201 / default
+			statusKeys := make([]string, 0, len(op.Responses))
+			for s := range op.Responses {
+				statusKeys = append(statusKeys, s)
+			}
+			sort.Strings(statusKeys)
+
+			for _, status := range statusKeys {
+				resp := op.Responses[status]
+				renderedProps := false
 				for _, media := range resp.Content {
-					if len(media.Schema.Properties) > 0 {
-						sb.WriteString(fmt.Sprintf("\n** Campos de Respuesta (`HTTP %s`):**\n\n", status))
+					props := media.Schema.Properties
+					if len(props) == 0 && media.Schema.Items != nil && len(media.Schema.Items.Properties) > 0 {
+						props = media.Schema.Items.Properties
+					}
+					if len(props) > 0 {
+						renderedProps = true
+						sb.WriteString(fmt.Sprintf("\n**Campos de Respuesta (`HTTP %s`):**\n\n", status))
 						sb.WriteString("| Propiedad (Output) | Tipo | Concepto Semántico (`x-okf-concept`) | Descripción |\n")
 						sb.WriteString("| :--- | :--- | :--- | :--- |\n")
-						propNames := make([]string, 0, len(media.Schema.Properties))
-						for pn := range media.Schema.Properties {
+						propNames := make([]string, 0, len(props))
+						for pn := range props {
 							propNames = append(propNames, pn)
 						}
 						sort.Strings(propNames)
 						for _, pn := range propNames {
-							prop := media.Schema.Properties[pn]
+							prop := props[pn]
 							pType := prop.Type
 							if pType == "" {
 								pType = "any"
@@ -347,7 +404,57 @@ func synthesizeOpenAPIMarkdown(sourcePath string, raw []byte) string {
 								escapeMarkdownPipe(desc),
 							))
 						}
+					} else {
+						// Direct schema or array items concept without properties map
+						schemaConcept := strings.TrimSpace(media.Schema.Concept)
+						schemaType := media.Schema.Type
+						schemaDesc := strings.TrimSpace(media.Schema.Description)
+						if schemaConcept == "" && media.Schema.Items != nil {
+							schemaConcept = strings.TrimSpace(media.Schema.Items.Concept)
+							if schemaType == "" {
+								schemaType = "array"
+							}
+							if schemaDesc == "" {
+								schemaDesc = strings.TrimSpace(media.Schema.Items.Description)
+							}
+						}
+						if schemaConcept == "" {
+							schemaConcept = strings.TrimSpace(resp.Concept)
+						}
+						if schemaConcept != "" {
+							renderedProps = true
+							if schemaType == "" {
+								schemaType = "object"
+							}
+							if schemaDesc == "" {
+								schemaDesc = strings.TrimSpace(resp.Description)
+							}
+							if schemaDesc == "" {
+								schemaDesc = "—"
+							}
+							sb.WriteString(fmt.Sprintf("\n**Campos de Respuesta (`HTTP %s`):**\n\n", status))
+							sb.WriteString("| Propiedad (Output) | Tipo | Concepto Semántico (`x-okf-concept`) | Descripción |\n")
+							sb.WriteString("| :--- | :--- | :--- | :--- |\n")
+							sb.WriteString(fmt.Sprintf("| `(body)` | `%s` | %s | %s |\n",
+								escapeMarkdownPipe(schemaType),
+								escapeMarkdownPipe(schemaConcept),
+								escapeMarkdownPipe(schemaDesc),
+							))
+						}
 					}
+				}
+				if !renderedProps && strings.TrimSpace(resp.Concept) != "" {
+					desc := strings.TrimSpace(resp.Description)
+					if desc == "" {
+						desc = "—"
+					}
+					sb.WriteString(fmt.Sprintf("\n**Campos de Respuesta (`HTTP %s`):**\n\n", status))
+					sb.WriteString("| Propiedad (Output) | Tipo | Concepto Semántico (`x-okf-concept`) | Descripción |\n")
+					sb.WriteString("| :--- | :--- | :--- | :--- |\n")
+					sb.WriteString(fmt.Sprintf("| `(response)` | `any` | %s | %s |\n",
+						escapeMarkdownPipe(strings.TrimSpace(resp.Concept)),
+						escapeMarkdownPipe(desc),
+					))
 				}
 			}
 		}

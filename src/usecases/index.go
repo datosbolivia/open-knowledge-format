@@ -20,12 +20,12 @@ type IndexReport struct {
 }
 
 type ConceptSummary struct {
-	RelativePath string
-	Type         string
-	Title        string
-	Description  string
-	Status       string
-	Tags         []string
+	RelativePath string   `json:"relative_path"`
+	Type         string   `json:"type"`
+	Title        string   `json:"title"`
+	Description  string   `json:"description,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
 }
 
 // GenerateIndex automatically indexes all concept documents in a bundle to support progressive disclosure (OKF §8).
@@ -147,7 +147,7 @@ func GenerateIndex(bundleDir string) (*IndexReport, error) {
 	sb.WriteString(fmt.Sprintf("title: \"%s Index\"\n", bundleName))
 	sb.WriteString(fmt.Sprintf("description: \"Automatically generated index for progressive disclosure in %s\"\n", bundleName))
 	sb.WriteString("generated:\n")
-	sb.WriteString("  by: \"okf CLI\"\n")
+	sb.WriteString("  by: \"agent:okf-cli\"\n")
 	sb.WriteString(fmt.Sprintf("  at: \"%s\"\n", nowISO))
 	sb.WriteString("---\n\n")
 

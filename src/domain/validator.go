@@ -130,6 +130,28 @@ func (s *StringList) UnmarshalYAML(value *yaml.Node) error {
 		*s = list
 		return nil
 	}
+	if value.Kind == yaml.MappingNode {
+		var m map[string]interface{}
+		if err := value.Decode(&m); err == nil {
+			var list []string
+			for _, v := range m {
+				switch tv := v.(type) {
+				case string:
+					if trimmed := strings.TrimSpace(tv); trimmed != "" {
+						list = append(list, trimmed)
+					}
+				case []interface{}:
+					for _, item := range tv {
+						if strItem, ok := item.(string); ok && strings.TrimSpace(strItem) != "" {
+							list = append(list, strings.TrimSpace(strItem))
+						}
+					}
+				}
+			}
+			*s = list
+			return nil
+		}
+	}
 	return nil
 }
 
@@ -176,11 +198,11 @@ type ConceptFrontmatter struct {
 	Generated    *GeneratedSpec         `yaml:"generated"`
 	Verified     VerificationList       `yaml:"verified"`
 	Freshness    *FreshnessSpec         `yaml:"freshness"`
-	SKOS         []string               `yaml:"skos"`
-	ExactMatch   []string               `yaml:"exact_match"`
-	CloseMatch   []string               `yaml:"close_match"`
-	Broader      []string               `yaml:"broader"`
-	Dimensions   []string               `yaml:"dimensions"`
+	SKOS         StringList             `yaml:"skos"`
+	ExactMatch   StringList             `yaml:"exact_match"`
+	CloseMatch   StringList             `yaml:"close_match"`
+	Broader      StringList             `yaml:"broader"`
+	Dimensions   StringList             `yaml:"dimensions"`
 	Contracts    []ContractSpec         `yaml:"contracts"`
 	Lineage      *LineageSpec           `yaml:"lineage"`
 	Policy       interface{}            `yaml:"policy"`

@@ -141,20 +141,30 @@ func (r *UnifiedMetadataReader) ReadNode(ctx context.Context, uriOrPath string) 
 		return ref
 	}
 
-	for _, c := range manifest.Contracts {
+	hasCLIToolContract := false
+	for i := range manifest.Contracts {
+		c := &manifest.Contracts[i]
+		cType := strings.ToLower(strings.TrimSpace(c.Type))
+		if cType == "owl-cli" || cType == "okf-cli" || c.Binary != "" {
+			hasCLIToolContract = true
+		}
 		targetP := strings.TrimSpace(c.Path)
 		if targetP == "" {
 			targetP = strings.TrimSpace(c.Ref)
 		}
 		if targetP != "" {
 			fullP := resolveContractRef(targetP)
-			cType := strings.ToLower(strings.TrimSpace(c.Type))
 			lowerP := strings.ToLower(fullP)
 			if cType == "openapi" || strings.Contains(lowerP, "openapi.") || strings.Contains(lowerP, "swagger.") {
 				if oaBytes, err := r.readData(ctx, fullP); err == nil {
 					rawOpenAPIs[fullP] = oaBytes
 				}
-			} else {
+			} else if cType == "owl-cli" || cType == "okf-cli" || strings.Contains(lowerP, "owl-cli") || strings.Contains(lowerP, "okf-cli") {
+				if cliBytes, err := r.readData(ctx, fullP); err == nil {
+					HydrateExternalCLIContract(c, cliBytes)
+					hasCLIToolContract = true
+				}
+			} else if cType == "" || cType == "datapackage" || cType == "frictionless" {
 				candidateFiles = append(candidateFiles, fullP)
 			}
 		}
@@ -176,7 +186,7 @@ func (r *UnifiedMetadataReader) ReadNode(ctx context.Context, uriOrPath string) 
 		}
 
 		for _, targetP := range candidateFiles {
-			if pkg, err := r.ReadPackage(ctx, targetP); err == nil {
+			if pkg, err := r.ReadPackage(ctx, targetP); err == nil && len(pkg.Resources) > 0 {
 				resources = pkg.Resources
 				if manifest.Title == "" && pkg.Title != "" {
 					manifest.Title = pkg.Title
@@ -186,7 +196,7 @@ func (r *UnifiedMetadataReader) ReadNode(ctx context.Context, uriOrPath string) 
 		}
 	}
 
-	if rawContent == "" && len(resources) == 0 && len(rawOpenAPIs) == 0 {
+	if rawContent == "" && len(resources) == 0 && len(rawOpenAPIs) == 0 && !hasCLIToolContract {
 		return nil, fmt.Errorf("could not read node content or manifest from %s", uriOrPath)
 	}
 
