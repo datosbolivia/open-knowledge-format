@@ -251,3 +251,223 @@ Metodología científica validada.
 		t.Errorf("body content mismatch: %s", body)
 	}
 }
+
+func TestDataPackageYAMLParserWithSchemaFields(t *testing.T) {
+	yamlContent := `name: bcb-semanal
+title: Estadísticas Semanales del BCB
+resources:
+  - name: bcb_reservas
+    path: https://datosbolivia.github.io/raw/nodes/bcb-semanal/data/bcb_reservas.parquet
+    format: parquet
+    schema:
+      fields:
+        - name: fecha
+          type: date
+          title: Fecha de corte
+          description: Fecha semanal del reporte
+          concept: ./concepts/fecha_corte.md
+        - name: tipo
+          type: string
+          title: Tipo de activo de reserva
+          categories:
+            - Divisas
+            - Oro
+            - DEG
+`
+	parser := NewDataPackageYAMLParser()
+	pkg, err := parser.ParseManifest(context.Background(), []byte(yamlContent), "")
+	if err != nil {
+		t.Fatalf("unexpected error parsing YAML with schema.fields: %v", err)
+	}
+	if len(pkg.Resources) != 1 {
+		t.Fatalf("expected exactly 1 resource (no fake column resources), got %d: %+v", len(pkg.Resources), pkg.Resources)
+	}
+	res := pkg.Resources[0]
+	if res.Name != "bcb_reservas" || res.Format != "parquet" {
+		t.Errorf("resource metadata mismatch: %+v", res)
+	}
+	if len(res.Fields) != 2 {
+		t.Fatalf("expected 2 schema fields, got %d", len(res.Fields))
+	}
+	if res.Fields[0].Name != "fecha" || res.Fields[0].Concept != "./concepts/fecha_corte.md" {
+		t.Errorf("field 0 mismatch: %+v", res.Fields[0])
+	}
+	if res.Fields[1].Name != "tipo" || len(res.Fields[1].Categories) != 3 {
+		t.Errorf("field 1 categories mismatch: %+v", res.Fields[1])
+	}
+}
+
+func TestLLMSTxtParserWithMultiLinkLineAndAccentSearch(t *testing.T) {
+	llmsContent := `# Catálogo Datos Bolivia
+> Índice soberano de datos abiertos
+
+- [Créditos Bancarios ASFI](/raw/nodes/asfi-creditos/index.md): Cartera de créditos por municipio. (Dominio: Finanzas. Recursos: cartera_municipal)
+- [Índice de Calidad del Aire (ICA)](./concepts/air_quality_index.md) - [Q2364111](https://www.wikidata.org/wiki/Q2364111)
+`
+	parser := NewLLMSTxtParser()
+	cat, err := parser.ParseCatalog([]byte(llmsContent), "https://datosbolivia.github.io/raw/nodes/air_quality/index.md")
+	if err != nil {
+		t.Fatalf("failed to parse llms.txt: %v", err)
+	}
+	if len(cat.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(cat.Entries))
+	}
+	icaEntry := cat.Entries[1]
+	if icaEntry.URI != "./concepts/air_quality_index.md" {
+		t.Errorf("multi-link regex corrupted URI: got %q, want %q", icaEntry.URI, "./concepts/air_quality_index.md")
+	}
+	if icaEntry.ResolvedURL != "https://datosbolivia.github.io/raw/nodes/air_quality/concepts/air_quality_index.md" {
+		t.Errorf("resolved URL mismatch: got %q", icaEntry.ResolvedURL)
+	}
+
+	// Accent-insensitive & multi-token search
+	matches := cat.FindByKeyword("creditos")
+	if len(matches) != 1 || matches[0].Title != "Créditos Bancarios ASFI" {
+		t.Errorf("accent-insensitive search for 'creditos' failed: %+v", matches)
+	}
+	multiMatches := cat.FindByKeyword("creditos municipio")
+	if len(multiMatches) != 1 {
+		t.Errorf("multi-token search 'creditos municipio' failed: %+v", multiMatches)
+	}
+}
+
+func TestUnifiedMetadataReaderSynthesizesMarkdownContracts(t *testing.T) {
+	tmpDir := t.TempDir()
+	nodeDir := filepath.Join(tmpDir, "geo-municipio")
+	conceptsDir := filepath.Join(nodeDir, "concepts")
+	if err := os.MkdirAll(conceptsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	indexMD := `---
+type: dataset
+title: Geo Municipio Hub
+dimensions:
+  - municipio
+contracts:
+  - type: datapackage
+    path: ./datapackage.yaml
+  - type: openapi
+    path: ./openapi.yaml
+  - type: owl-cli
+    binary: okf-geo
+    subcommand: enrich-municipio
+    inputs:
+      - name: codigo_ine
+        flag: --cod-ine
+        type: string
+        concept: wd:Q15284
+        required: true
+        description: Código INE de 6 dígitos
+    outputs:
+      format: json
+      concept: wd:Q186588
+      description: Polígono GeoJSON del municipio
+---
+# Geo Municipio Hub
+
+Descripción general del nodo.
+
+` + "```ojs\nviewof x = Inputs.select(['a', 'b'])\n```" + `
+`
+	if err := os.WriteFile(filepath.Join(nodeDir, "index.md"), []byte(indexMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	dpYAML := `name: geo-municipio
+resources:
+  - name: municipios_2024
+    path: data/municipios.parquet
+    format: parquet
+    schema:
+      fields:
+        - name: cod_ine
+          type: string
+          title: Código INE Municipal
+          concept: wd:Q15284
+`
+	if err := os.WriteFile(filepath.Join(nodeDir, "datapackage.yaml"), []byte(dpYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	openAPIYAML := `openapi: 3.1.0
+info:
+  title: API de Riesgo Municipal
+  version: 1.0.0
+servers:
+  - url: https://api.datosbolivia.org
+paths:
+  /v1/riesgo/municipio:
+    get:
+      summary: Consulta riesgo climático por código INE
+      parameters:
+        - name: cod_ine
+          in: query
+          required: true
+          x-okf-concept: wd:Q15284
+          schema:
+            type: string
+          description: Código INE de 6 dígitos
+      responses:
+        "200":
+          description: Respuesta exitosa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  indice_riesgo:
+                    type: number
+                    x-okf-concept: wd:Q7944
+                    description: Índice de vulnerabilidad sísmica/climática
+`
+	if err := os.WriteFile(filepath.Join(nodeDir, "openapi.yaml"), []byte(openAPIYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	conceptMD := `---
+type: concept
+title: Código INE Municipal
+skos:
+  - https://www.wikidata.org/wiki/Q15284
+---
+# Código INE Municipal
+
+Identificador oficial de 6 dígitos del municipio.
+`
+	conceptFile := filepath.Join(conceptsDir, "cod_ine.md")
+	if err := os.WriteFile(conceptFile, []byte(conceptMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reader := NewUnifiedMetadataReader("", 5*time.Second)
+	dp, err := reader.ReadNode(context.Background(), nodeDir)
+	if err != nil {
+		t.Fatalf("ReadNode failed: %v", err)
+	}
+
+	if strings.Contains(dp.Description, "```ojs") {
+		t.Errorf("expected OJS code block to be stripped from Description, got: %s", dp.Description)
+	}
+	if !strings.Contains(dp.Description, "## Contrato de Datos y Esquema Semántico (Sintetizado)") {
+		t.Errorf("expected synthesized contract header in Description, got: %s", dp.Description)
+	}
+	if !strings.Contains(dp.Description, "`cod_ine`") || !strings.Contains(dp.Description, "`wd:Q15284`") && !strings.Contains(dp.Description, "wd:Q15284") {
+		t.Errorf("expected synthesized column and concept in Description, got: %s", dp.Description)
+	}
+	if !strings.Contains(dp.Description, "GET /v1/riesgo/municipio") {
+		t.Errorf("expected OpenAPI endpoint synthesized in Description, got: %s", dp.Description)
+	}
+	if !strings.Contains(dp.Description, "okf-geo enrich-municipio") {
+		t.Errorf("expected OWL-CLI tool synthesized in Description, got: %s", dp.Description)
+	}
+
+	// Verify reading a specific concept .md file does NOT overwrite it with parent index.md
+	conceptDP, err := reader.ReadNode(context.Background(), conceptFile)
+	if err != nil {
+		t.Fatalf("ReadNode on specific concept file failed: %v", err)
+	}
+	if conceptDP.Manifest.Title != "Código INE Municipal" {
+		t.Errorf("expected concept title 'Código INE Municipal', got %q", conceptDP.Manifest.Title)
+	}
+}

@@ -42,11 +42,15 @@ type rawJSONResource struct {
 	Name              string                   `json:"name"`
 	Path              string                   `json:"path"`
 	Format            string                   `json:"format"`
+	Description       string                   `json:"description"`
 	MediaType         string                   `json:"mediatype"`
 	Bytes             int64                    `json:"bytes"`
 	BytesCount        int64                    `json:"bytes_count"`
 	Hash              string                   `json:"hash"`
 	HashSHA256        string                   `json:"hash_sha256"`
+	Schema            struct {
+		Fields []rawYAMLSchemaField `json:"fields"`
+	} `json:"schema"`
 	InternalResources []rawJSONInternalSubRes  `json:"internal_resources"`
 	Subresources      []rawJSONInternalSubRes  `json:"subresources"`
 }
@@ -86,11 +90,13 @@ func (p *DataPackageJSONParser) ParseManifest(ctx context.Context, data []byte, 
 		}
 
 		parsedResources = append(parsedResources, domain.Resource{
-			Name:       r.Name,
-			Path:       resolvedPath,
-			Format:     fmtStr,
-			BytesCount: bytesCount,
-			HashSHA256: sha,
+			Name:        r.Name,
+			Path:        resolvedPath,
+			Format:      fmtStr,
+			Description: strings.TrimSpace(r.Description),
+			BytesCount:  bytesCount,
+			HashSHA256:  sha,
+			Fields:      convertRawFields(r.Schema.Fields),
 		})
 
 		// Register composite archive internal subresources (RFC 3986 #fragment)

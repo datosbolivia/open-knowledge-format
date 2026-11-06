@@ -1,13 +1,12 @@
 package manifests
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"strconv"
+	"fmt"
 	"strings"
 
 	"github.com/datosbolivia/open-knowledge-format/src/domain"
+	"gopkg.in/yaml.v3"
 )
 
 // DataPackageYAMLParser parses Frictionless DataPackage manifests formatted in YAML (.yaml and .yml).
@@ -30,112 +29,195 @@ func (p *DataPackageYAMLParser) CanParse(filenameOrURL string, data []byte) bool
 	return strings.Contains(content, "resources:") && (strings.Contains(content, "- name:") || strings.Contains(content, "  name:"))
 }
 
+type rawYAMLSchemaField struct {
+	Name        string                 `yaml:"name" json:"name"`
+	Type        string                 `yaml:"type" json:"type"`
+	Title       string                 `yaml:"title" json:"title"`
+	Description string                 `yaml:"description" json:"description"`
+	RDFType     string                 `yaml:"rdfType" json:"rdfType"`
+	Concept     string                 `yaml:"concept" json:"concept"`
+	ConceptRef  string                 `yaml:"concept_ref" json:"concept_ref"`
+	OKFConcept  string                 `yaml:"okf:concept" json:"okf:concept"`
+	Unit        string                 `yaml:"unit" json:"unit"`
+	Categories  interface{}            `yaml:"categories" json:"categories"`
+	ValueMap    map[string]string      `yaml:"value_mapping" json:"value_mapping"`
+	Custom      map[string]interface{} `yaml:"custom" json:"custom"`
+}
+
+type rawYAMLResource struct {
+	Name        string `yaml:"name" json:"name"`
+	Path        string `yaml:"path" json:"path"`
+	URL         string `yaml:"url" json:"url"`
+	Format      string `yaml:"format" json:"format"`
+	Description string `yaml:"description" json:"description"`
+	Hash        string `yaml:"hash" json:"hash"`
+	HashSHA256  string `yaml:"hash_sha256" json:"hash_sha256"`
+	Bytes       int64  `yaml:"bytes" json:"bytes"`
+	BytesCount  int64  `yaml:"bytes_count" json:"bytes_count"`
+	Schema      struct {
+		Fields []rawYAMLSchemaField `yaml:"fields" json:"fields"`
+	} `yaml:"schema" json:"schema"`
+	InternalResources []rawJSONInternalSubRes `yaml:"internal_resources" json:"internal_resources"`
+	Subresources      []rawJSONInternalSubRes `yaml:"subresources" json:"subresources"`
+}
+
+type rawYAMLDataPackage struct {
+	Name        string            `yaml:"name" json:"name"`
+	Title       string            `yaml:"title" json:"title"`
+	Description string            `yaml:"description" json:"description"`
+	Version     string            `yaml:"version" json:"version"`
+	Resources   []rawYAMLResource `yaml:"resources" json:"resources"`
+}
+
+func convertRawFields(rawFields []rawYAMLSchemaField) []domain.ResourceField {
+	if len(rawFields) == 0 {
+		return nil
+	}
+	out := make([]domain.ResourceField, 0, len(rawFields))
+	for _, rf := range rawFields {
+		if strings.TrimSpace(rf.Name) == "" {
+			continue
+		}
+		concept := strings.TrimSpace(rf.Concept)
+		if concept == "" {
+			concept = strings.TrimSpace(rf.ConceptRef)
+		}
+		if concept == "" {
+			concept = strings.TrimSpace(rf.OKFConcept)
+		}
+		var customMap map[string]string
+		if len(rf.Custom) > 0 {
+			customMap = make(map[string]string, len(rf.Custom))
+			for k, v := range rf.Custom {
+				strVal := fmt.Sprintf("%v", v)
+				customMap[k] = strVal
+				if concept == "" && (k == "okf:concept" || k == "concept") {
+					concept = strVal
+				}
+			}
+		}
+
+		var cats []string
+		switch cv := rf.Categories.(type) {
+		case []interface{}:
+			for _, item := range cv {
+				switch iv := item.(type) {
+				case string:
+					cats = append(cats, iv)
+				case map[string]interface{}:
+					if val, ok := iv["value"]; ok {
+						cats = append(cats, fmt.Sprintf("%v", val))
+					} else if lbl, ok := iv["label"]; ok {
+						cats = append(cats, fmt.Sprintf("%v", lbl))
+					}
+				}
+			}
+		case map[string]interface{}:
+			for k := range cv {
+				cats = append(cats, k)
+			}
+		}
+		if len(cats) == 0 && len(rf.ValueMap) > 0 {
+			for k := range rf.ValueMap {
+				cats = append(cats, k)
+			}
+		}
+
+		out = append(out, domain.ResourceField{
+			Name:        strings.TrimSpace(rf.Name),
+			Type:        strings.TrimSpace(rf.Type),
+			Title:       strings.TrimSpace(rf.Title),
+			Description: strings.TrimSpace(rf.Description),
+			RDFType:     strings.TrimSpace(rf.RDFType),
+			Concept:     concept,
+			Unit:        strings.TrimSpace(rf.Unit),
+			Categories:  cats,
+			Custom:      customMap,
+		})
+	}
+	return out
+}
+
 func (p *DataPackageYAMLParser) ParseManifest(ctx context.Context, data []byte, baseURL string) (*domain.PackageManifest, error) {
-	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var raw rawYAMLDataPackage
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
 
 	manifest := &domain.PackageManifest{
-		Format:    domain.PackageFormatDataPackageYAML,
-		Resources: make([]domain.Resource, 0),
+		Name:        strings.TrimSpace(raw.Name),
+		Title:       strings.TrimSpace(raw.Title),
+		Description: strings.TrimSpace(raw.Description),
+		Version:     strings.TrimSpace(raw.Version),
+		Format:      domain.PackageFormatDataPackageYAML,
+		Resources:   make([]domain.Resource, 0, len(raw.Resources)),
 	}
 
-	inResources := false
-	inResourceFields := false
-	var currentRes *domain.Resource
-
-	flushCurrentResource := func() {
-		if currentRes != nil && currentRes.Name != "" {
-			if currentRes.Format == "" {
-				currentRes.Format = inferFormatFromPath(currentRes.Path)
-			}
-			currentRes.Path = resolveResourcePath(baseURL, currentRes.Path)
-			manifest.Resources = append(manifest.Resources, *currentRes)
-			currentRes = nil
-		}
-	}
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+	for _, r := range raw.Resources {
+		if strings.TrimSpace(r.Name) == "" {
 			continue
 		}
+		rawPath := strings.TrimSpace(r.Path)
+		if rawPath == "" {
+			rawPath = strings.TrimSpace(r.URL)
+		}
+		fmtStr := strings.ToLower(strings.TrimSpace(r.Format))
+		if fmtStr == "" {
+			fmtStr = inferFormatFromPath(rawPath)
+		}
+		resolvedPath := resolveResourcePath(baseURL, rawPath)
 
-		// Root keys
-		if !inResources {
-			if strings.HasPrefix(trimmed, "resources:") {
-				inResources = true
-				continue
-			}
-
-			parts := strings.SplitN(trimmed, ":", 2)
-			if len(parts) == 2 {
-				k := strings.ToLower(strings.TrimSpace(parts[0]))
-				v := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
-				switch k {
-				case "name":
-					manifest.Name = v
-				case "title":
-					manifest.Title = v
-				case "description":
-					manifest.Description = v
-				case "version":
-					manifest.Version = v
-				}
-			}
-			continue
+		bytesCount := r.BytesCount
+		if bytesCount == 0 {
+			bytesCount = r.Bytes
+		}
+		sha := strings.TrimSpace(r.HashSHA256)
+		if sha == "" {
+			sha = strings.TrimSpace(r.Hash)
 		}
 
-		// In resources list
-		if strings.HasPrefix(trimmed, "- ") {
-			flushCurrentResource()
-			currentRes = &domain.Resource{}
-			inResourceFields = false
+		manifest.Resources = append(manifest.Resources, domain.Resource{
+			Name:        strings.TrimSpace(r.Name),
+			Path:        resolvedPath,
+			Format:      fmtStr,
+			Description: strings.TrimSpace(r.Description),
+			HashSHA256:  sha,
+			BytesCount:  bytesCount,
+			Fields:      convertRawFields(r.Schema.Fields),
+		})
 
-			item := strings.TrimPrefix(trimmed, "- ")
-			if strings.HasPrefix(item, "name:") {
-				currentRes.Name = strings.Trim(strings.TrimSpace(strings.TrimPrefix(item, "name:")), "\"'")
+		subList := append(r.InternalResources, r.Subresources...)
+		for _, sub := range subList {
+			subName := strings.TrimSpace(sub.Name)
+			if subName == "" {
+				subName = strings.TrimSpace(sub.ID)
 			}
-			continue
-		}
-
-		// Resource properties
-		if currentRes != nil {
-			if strings.HasPrefix(trimmed, "schema:") || strings.HasPrefix(trimmed, "fields:") {
-				inResourceFields = true
+			if subName == "" {
 				continue
 			}
-
-			if inResourceFields {
-				// We don't need detailed column parsing for manifest resolution
-				continue
+			frag := strings.TrimPrefix(strings.TrimSpace(sub.Subpath), "#")
+			if frag == "" {
+				frag = strings.TrimPrefix(strings.TrimSpace(sub.Fragment), "#")
 			}
-
-			parts := strings.SplitN(trimmed, ":", 2)
-			if len(parts) == 2 {
-				k := strings.ToLower(strings.TrimSpace(parts[0]))
-				v := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
-
-				switch k {
-				case "name":
-					if currentRes.Name == "" {
-						currentRes.Name = v
-					}
-				case "path":
-					currentRes.Path = v
-				case "format":
-					currentRes.Format = strings.ToLower(v)
-				case "hash", "hash_sha256":
-					currentRes.HashSHA256 = v
-				case "bytes", "bytes_count":
-					if b, err := strconv.ParseInt(v, 10, 64); err == nil {
-						currentRes.BytesCount = b
-					}
-				}
+			if frag == "" && strings.Contains(sub.URIFragment, "#") {
+				parts := strings.SplitN(sub.URIFragment, "#", 2)
+				frag = strings.TrimSpace(parts[1])
 			}
+			subPath := resolvedPath
+			if frag != "" {
+				subPath = resolvedPath + "#" + frag
+			}
+			subFmt := strings.ToLower(strings.TrimSpace(sub.Format))
+			if subFmt == "" {
+				subFmt = inferFormatFromPath(frag)
+			}
+			manifest.Resources = append(manifest.Resources, domain.Resource{
+				Name:   subName,
+				Path:   subPath,
+				Format: subFmt,
+			})
 		}
 	}
 
-	flushCurrentResource()
-
-	return manifest, scanner.Err()
+	return manifest, nil
 }

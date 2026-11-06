@@ -12,15 +12,6 @@ var (
 	ErrMissingDimension = errors.New("data product must specify at least one dimension")
 )
 
-// Contract defines a syntactic or semantic data contract adhering to OKF/ODKF v0.2.
-// Supports both inline specification and by-reference resolution (ref).
-type Contract struct {
-	Type   string                 `json:"type" yaml:"type"`
-	Path   string                 `json:"path,omitempty" yaml:"path,omitempty"`
-	Ref    string                 `json:"ref,omitempty" yaml:"ref,omitempty"`       // By-Reference resolution (local path or remote URL)
-	Inline map[string]interface{} `json:"inline,omitempty" yaml:"inline,omitempty"` // Inline contract specification
-}
-
 // GeneratedSpec models the creation provenance per OKF v0.2 §5.1 & W3C PROV-O.
 type GeneratedSpec struct {
 	By     string   `json:"by,omitempty" yaml:"by,omitempty"`         // Actor: "Name <email>", URL, or agent:<id>
@@ -66,13 +57,59 @@ type Lineage struct {
 	Transformations []LineageTransformation `json:"transformations,omitempty" yaml:"transformations,omitempty"`
 }
 
+// ResourceField represents a column/field definition inside a tabular Resource schema.
+type ResourceField struct {
+	Name        string            `json:"name" yaml:"name"`
+	Type        string            `json:"type,omitempty" yaml:"type,omitempty"`
+	Title       string            `json:"title,omitempty" yaml:"title,omitempty"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	RDFType     string            `json:"rdfType,omitempty" yaml:"rdfType,omitempty"`
+	Concept     string            `json:"concept,omitempty" yaml:"concept,omitempty"`
+	Unit        string            `json:"unit,omitempty" yaml:"unit,omitempty"`
+	Categories  []string          `json:"categories,omitempty" yaml:"categories,omitempty"`
+	Custom      map[string]string `json:"custom,omitempty" yaml:"custom,omitempty"`
+}
+
+// CLIInputParam models an input argument/flag for an OWL/OKF-described CLI tool (`owl-cli` / `okf-cli`).
+type CLIInputParam struct {
+	Name        string `json:"name" yaml:"name"`
+	Flag        string `json:"flag,omitempty" yaml:"flag,omitempty"`
+	Position    int    `json:"position,omitempty" yaml:"position,omitempty"`
+	Type        string `json:"type,omitempty" yaml:"type,omitempty"`
+	Concept     string `json:"concept,omitempty" yaml:"concept,omitempty"`
+	Required    bool   `json:"required,omitempty" yaml:"required,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// CLIOutputSpec models the semantic output of a CLI tool (`owl-cli` / `okf-cli`).
+type CLIOutputSpec struct {
+	Format      string `json:"format,omitempty" yaml:"format,omitempty"`
+	Concept     string `json:"concept,omitempty" yaml:"concept,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// Contract defines a syntactic, service, or CLI contract adhering to OKF/ODKF v0.2+.
+// Supports inline specification, by-reference resolution (path/ref), and OWL-CLI tool definitions.
+type Contract struct {
+	Type       string                 `json:"type" yaml:"type"`
+	Path       string                 `json:"path,omitempty" yaml:"path,omitempty"`
+	Ref        string                 `json:"ref,omitempty" yaml:"ref,omitempty"`               // By-Reference resolution (local path or remote URL)
+	Binary     string                 `json:"binary,omitempty" yaml:"binary,omitempty"`         // For type: owl-cli / okf-cli
+	Subcommand string                 `json:"subcommand,omitempty" yaml:"subcommand,omitempty"` // For type: owl-cli / okf-cli
+	Inputs     []CLIInputParam        `json:"inputs,omitempty" yaml:"inputs,omitempty"`         // For type: owl-cli / okf-cli
+	Outputs    *CLIOutputSpec         `json:"outputs,omitempty" yaml:"outputs,omitempty"`       // For type: owl-cli / okf-cli
+	Inline     map[string]interface{} `json:"inline,omitempty" yaml:"inline,omitempty"`         // Inline contract specification
+}
+
 // Resource represents an individual tabular or binary asset within a Data Product.
 type Resource struct {
-	Name       string `json:"name" yaml:"name"`
-	Path       string `json:"path" yaml:"path"`
-	Format     string `json:"format" yaml:"format"`
-	HashSHA256 string `json:"hash_sha256,omitempty" yaml:"hash_sha256,omitempty"`
-	BytesCount int64  `json:"bytes_count,omitempty" yaml:"bytes_count,omitempty"`
+	Name        string          `json:"name" yaml:"name"`
+	Path        string          `json:"path" yaml:"path"`
+	Format      string          `json:"format" yaml:"format"`
+	Description string          `json:"description,omitempty" yaml:"description,omitempty"`
+	HashSHA256  string          `json:"hash_sha256,omitempty" yaml:"hash_sha256,omitempty"`
+	BytesCount  int64           `json:"bytes_count,omitempty" yaml:"bytes_count,omitempty"`
+	Fields      []ResourceField `json:"fields,omitempty" yaml:"fields,omitempty"`
 }
 
 // SpatialCoverage encapsulates geospatial extent and resolution per ISO 19115 / DCAT v3.

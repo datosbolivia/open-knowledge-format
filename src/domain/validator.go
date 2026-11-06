@@ -86,6 +86,11 @@ var (
 		"odrl":         true,
 		"opa":          true,
 		"dpv":          true,
+		"owl-cli":      true,
+		"okf-cli":      true,
+		"owl":          true,
+		"rdf":          true,
+		"ckan":         true,
 	}
 	validStatusMap = map[string]bool{
 		"draft":      true,
@@ -184,10 +189,14 @@ type ConceptFrontmatter struct {
 }
 
 type ContractSpec struct {
-	Type   string                 `yaml:"type" json:"type"`
-	Path   string                 `yaml:"path" json:"path"`
-	Ref    string                 `yaml:"ref" json:"ref"`
-	Inline map[string]interface{} `yaml:"inline" json:"inline"`
+	Type       string                 `yaml:"type" json:"type"`
+	Path       string                 `yaml:"path" json:"path"`
+	Ref        string                 `yaml:"ref" json:"ref"`
+	Binary     string                 `yaml:"binary,omitempty" json:"binary,omitempty"`
+	Subcommand string                 `yaml:"subcommand,omitempty" json:"subcommand,omitempty"`
+	Inputs     []CLIInputParam        `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Outputs    *CLIOutputSpec         `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+	Inline     map[string]interface{} `yaml:"inline" json:"inline"`
 }
 
 type LineageSpec struct {
@@ -289,8 +298,8 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 		if targetRef == "" {
 			targetRef = strings.TrimSpace(c.Ref)
 		}
-		if targetRef == "" && len(c.Inline) == 0 {
-			report.AddIssue("PE4-CONTRACT-PATH", SeverityError, fmt.Sprintf("Contract[%d] must specify 'path', 'ref', or 'inline'", idx), filePath, 1)
+		if targetRef == "" && len(c.Inline) == 0 && strings.TrimSpace(c.Binary) == "" && len(c.Inputs) == 0 {
+			report.AddIssue("PE4-CONTRACT-PATH", SeverityError, fmt.Sprintf("Contract[%d] must specify 'path', 'ref', 'inline', or 'binary'", idx), filePath, 1)
 		} else if targetRef != "" && !strings.HasPrefix(targetRef, "http://") && !strings.HasPrefix(targetRef, "https://") && filePath != "" {
 			baseDir := filepath.Dir(filePath)
 			targetFile := filepath.Join(baseDir, targetRef)

@@ -24,18 +24,46 @@ type Catalog struct {
 	Entries        []CatalogEntry `json:"entries"`
 }
 
-// FindByKeyword searches catalog entries matching a substring in title, description, or domain.
+var searchDiacriticsReplacer = strings.NewReplacer(
+	"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u",
+	"à", "a", "è", "e", "ì", "i", "ò", "o", "ù", "u",
+	"ä", "a", "ë", "e", "ï", "i", "ö", "o", "ü", "u",
+	"â", "a", "ê", "e", "î", "i", "ô", "o", "û", "u",
+	"ñ", "n", "ç", "c",
+)
+
+func normalizeSearchText(s string) string {
+	return searchDiacriticsReplacer.Replace(strings.ToLower(strings.TrimSpace(s)))
+}
+
+// FindByKeyword searches catalog entries matching all tokens (accent-insensitive) in title, description, domain, URI, or resources.
 func (c *Catalog) FindByKeyword(keyword string) []CatalogEntry {
-	if keyword == "" {
+	if strings.TrimSpace(keyword) == "" {
 		return c.Entries
 	}
-	kw := strings.ToLower(keyword)
+	tokens := strings.Fields(normalizeSearchText(keyword))
+	if len(tokens) == 0 {
+		return c.Entries
+	}
 	var matches []CatalogEntry
 
 	for _, entry := range c.Entries {
-		if strings.Contains(strings.ToLower(entry.Title), kw) ||
-			strings.Contains(strings.ToLower(entry.Description), kw) ||
-			strings.Contains(strings.ToLower(entry.Domain), kw) {
+		haystack := normalizeSearchText(strings.Join([]string{
+			entry.Title,
+			entry.Description,
+			entry.Domain,
+			entry.URI,
+			entry.ResolvedURL,
+			strings.Join(entry.Resources, " "),
+		}, " "))
+		allMatched := true
+		for _, tok := range tokens {
+			if !strings.Contains(haystack, tok) {
+				allMatched = false
+				break
+			}
+		}
+		if allMatched {
 			matches = append(matches, entry)
 		}
 	}
@@ -44,11 +72,11 @@ func (c *Catalog) FindByKeyword(keyword string) []CatalogEntry {
 
 // FindByDomain returns catalog entries belonging to an exact or partial domain category.
 func (c *Catalog) FindByDomain(domainCategory string) []CatalogEntry {
-	dc := strings.ToLower(strings.TrimSpace(domainCategory))
+	dc := normalizeSearchText(domainCategory)
 	var matches []CatalogEntry
 
 	for _, entry := range c.Entries {
-		if strings.Contains(strings.ToLower(entry.Domain), dc) {
+		if strings.Contains(normalizeSearchText(entry.Domain), dc) {
 			matches = append(matches, entry)
 		}
 	}

@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	entryRegex      = regexp.MustCompile(`^-\s*\[(.*?)\]\((.*?)\)(?::\s*(.*))?$`)
+	entryRegex      = regexp.MustCompile(`^-\s*\[([^\]]+)\]\(([^)\s]+)\)(?:\s*(?::|-|—)\s*(.*))?$`)
 	domainRegex     = regexp.MustCompile(`\(Dominio:\s*([^)]*?)(?:\.|\)|Recursos:)`)
 	recRegex        = regexp.MustCompile(`Recursos:\s*([^)]+)\)`)
 	reqHeaderRegex  = regexp.MustCompile(`^###\s*\[(.*?)\]\s*(.*?)(?:\s*\((?:Institución|Agencia):\s*([^)]+)\))?$`)

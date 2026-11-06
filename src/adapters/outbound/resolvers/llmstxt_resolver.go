@@ -19,7 +19,7 @@ import (
 // Example standard: - [Title](/raw/nodes/...): Description. (Dominio: Finanzas. Recursos: r1, r2)
 // Example hierarchical: ### [REQ-01] Title \n * [REQ_01_A] Title (Tríada: `...`): /raw/path
 var (
-	entryRegex      = regexp.MustCompile(`^-\s*\[(.*?)\]\((.*?)\)(?::\s*(.*))?$`)
+	entryRegex      = regexp.MustCompile(`^-\s*\[([^\]]+)\]\(([^)\s]+)\)(?:\s*(?::|-|—)\s*(.*))?$`)
 	domainRegex     = regexp.MustCompile(`\(Dominio:\s*([^)]*?)(?:\.|\)|Recursos:)`)
 	recRegex        = regexp.MustCompile(`Recursos:\s*([^)]+)\)`)
 	reqHeaderRegex  = regexp.MustCompile(`^###\s*\[(.*?)\]\s*(.*?)(?:\s*\((?:Institución|Agencia):\s*([^)]+)\))?$`)

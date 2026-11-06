@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/datosbolivia/open-knowledge-format/src/domain"
+	"gopkg.in/yaml.v3"
 )
 
 // OKFMarkdownParser parses OKF v0.2 Markdown files (such as index.md) with YAML frontmatter.
@@ -94,6 +95,15 @@ func ParseOKFFrontmatter(data []byte) (domain.Manifest, string, error) {
 }
 
 func parseManifestFromYAML(lines []string) domain.Manifest {
+	rawYAML := strings.Join(lines, "\n")
+	var parsed domain.Manifest
+	if err := yaml.Unmarshal([]byte(rawYAML), &parsed); err == nil && (parsed.Title != "" || parsed.Type != "" || len(parsed.Contracts) > 0) {
+		if len(parsed.Dimensions) == 0 {
+			parsed.Dimensions = []string{"core"}
+		}
+		return parsed
+	}
+
 	var m domain.Manifest
 	currentSection := ""
 	var currentContract domain.Contract
