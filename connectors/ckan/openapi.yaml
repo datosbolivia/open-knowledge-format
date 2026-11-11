@@ -1,0 +1,98 @@
+openapi: 3.1.0
+info:
+  title: CKAN Action API v3 Service
+  version: 3.0.0
+  description: API REST para consulta y búsqueda de datasets en instancias CKAN.
+servers:
+  - url: https://datos.gob.bo/api/3/action
+    description: Portal de Datos Abiertos de Bolivia (Ejemplo)
+paths:
+  /package_search:
+    get:
+      summary: Busca paquetes y datasets en la instancia CKAN
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Consulta textual de búsqueda
+        - name: rows
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+          description: Límite de resultados a retornar
+      responses:
+        "200":
+          description: Lista de datasets encontrados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                      results:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              x-okf-concept: okf:dataset_id
+                            name:
+                              type: string
+                              x-okf-concept: okf:dataset_slug
+                            title:
+                              type: string
+  /package_show:
+    get:
+      summary: Obtiene el detalle y recursos de un dataset específico
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Slug o identificador del dataset en CKAN
+          x-okf-concept: okf:dataset_id
+      responses:
+        "200":
+          description: Metadatos y recursos del paquete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  result:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                      title:
+                        type: string
+                      resources:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            url:
+                              type: string
+                              x-okf-concept: okf:resource_url
+                            format:
+                              type: string

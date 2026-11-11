@@ -1,0 +1,24 @@
+# Open Knowledge Format (OKF) Catalog
+> Universal semantic standard, data product catalog, and federated knowledge graph.
+
+Specification and reference implementation for Open Knowledge Format (OKF v0.2 / ODKF), enabling zero-copy data synthesis, semantic anchoring (SKOS/OWL), multi-contract validation (Frictionless, OpenAPI, OWL-CLI), and verifiable cryptographic lineage.
+
+## Information and Project Documentation
+- [OKF Specification](SPEC.md): Formal normative specification of Open Knowledge Format v0.2.
+- [Specification-Driven Design](docs/SPECIFICATION_DRIVEN_DESIGN.md): Architectural principles and specification-driven development guide.
+- [Four-Level Interoperability](docs/INTEROPERABILIDAD_EN_CUATRO_NIVELES.md): Synthesis of syntactic, semantic, behavioral, and sovereign interoperability.
+- [Connectors and Services Guide](connectors/README.md): Documentation on connectors and executable service nodes.
+
+## Federated Dataset Catalog (Open Knowledge Format v0.2)
+- [Red Nacional de Monitoreo de Calidad del Aire de Bolivia](bundles/air_quality_bolivia/index.md): Medición horaria de material particulado (PM2.5, PM10) y gases en las ciudades del eje troncal boliviano (La Paz, Cochabamba, Santa Cruz). (Domain: Medio Ambiente. Resources: red_monica_horario)
+- [Cartografía Censal Digitalizada Bolivia 2024](bundles/censo_2024_cartografia/index.md): Paquete cartográfico compuesto en archivo ZIP con acceso selectivo a subarchivos departamentales vía fragment identifiers RFC 3986. (Domain: Demografía. Resources: cartografia_censal_2024)
+- [Vigilancia Epidemiológica de Arbovirosis en Bolivia](bundles/udabol_salud_syndicated/index.md): Conjunto de datos sindicado con co-referencia multicatálogo entre repositorios académicos y estatales, deduplicado por CID inmutable. (Domain: Salud. Resources: arbovirosis_bolivia)
+- [Acme Retail Knowledge Bundle](bundles/acme_retail/index.md): Enterprise knowledge bundle grounding BigQuery tables, headline business metrics, attested computations, and finance policies. (Domain: Retail. Resources: tables, metrics, computations)
+- [Bitcoin Blockchain Ledger Bundle](bundles/crypto_bitcoin/index.md): Public Bitcoin transaction ledger, block history, join paths, and duplicate transaction anomaly detection. (Domain: Criptoactivos. Resources: blocks, transactions, inputs, outputs)
+- [Google Analytics 4 E-Commerce Export Bundle](bundles/ga4/index.md): Event-level daily sharded export tables emulating a web ecommerce store with SQL audience metrics. (Domain: Analytics. Resources: events, audiences)
+- [Stack Overflow Public Archive Bundle](bundles/stackoverflow/index.md): Public archive of Stack Overflow posts, users, tags, badges, comments, and vote metrics. (Domain: Developer Communities. Resources: posts, users, tags, comments)
+
+## Services and Executable Connectors
+- [Servicio Lector y Cosechador de Instancias CKAN](connectors/ckan/index.md): Conector y servicio ejecutable CLI/OpenAPI para consultar, filtrar y cosechar instancias de portales CKAN a paquetes estándar OKF v0.2. (Domain: Integraciones. Resources: read_ckan.py, openapi.yaml)
+- [Despacho y Operación en Tiempo Real del Sistema Interconectado Nacional](bundles/cndc_despacho_electrico/index.md): Telemetría y estado de operación en tiempo real de nodos de generación y transmisión eléctrica. (Domain: Energía. Resources: telemetria_cndc)
+- [Google Cloud Knowledge Catalog Connector](connectors/gcp-knowledge-catalog.md): Conector e integración bidireccional entre bundles OKF y Dataplex Knowledge Catalog. (Domain: Integraciones. Resources: kcmd)

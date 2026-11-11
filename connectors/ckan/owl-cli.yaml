@@ -1,0 +1,39 @@
+binary: python3
+subcommand: connectors/ckan/read_ckan.py
+arguments:
+  - name: url
+    flag: --url
+    type: string
+    required: true
+    concept: wd:Q1197685
+    description: URL base de la instancia CKAN (ej. https://datos.gob.bo)
+  - name: query
+    flag: --query
+    type: string
+    required: false
+    description: Término o filtro de búsqueda de datasets
+  - name: package_id
+    flag: --package-id
+    type: string
+    required: false
+    description: Slug o identificador de un paquete específico
+  - name: limit
+    flag: --limit
+    type: integer
+    required: false
+    default: 10
+    description: Número máximo de paquetes a cosechar
+  - name: token
+    flag: --token
+    type: string
+    required: false
+    description: API Key o Bearer Token para instancias protegidas
+  - name: out
+    flag: --out
+    type: string
+    required: false
+    description: Directorio destino para exportar los bundles OKF v0.2
+output:
+  format: okf-bundle
+  concept: okf:PackageManifest
+  description: Paquete OKF v0.2 con index.md y datapackage.yaml
