@@ -16,7 +16,20 @@ This document is self-contained: it specifies everything needed to
 produce and consume OKF v0.2. A summary of what changed from v0.1 is in
 §13.
 
+### Conformance & Keyword Definitions
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+"SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+"OPTIONAL" in this document are to be interpreted as described in BCP 14
+[RFC2119] [RFC8174] when, and only when, they appear in all capitals, as
+shown here.
+
 ---
+
+# Part I — Core Open Knowledge Format (OKF)
+
+Chapters 1–13 define core OKF: a minimal, tool-free markdown container
+for human and agent knowledge representation.
 
 ## 1. Motivation
 
@@ -116,7 +129,7 @@ A bundle is a directory tree of markdown files. The directory structure
 is independent of the domain: producers organize concepts however makes
 sense for the knowledge being captured.
 
-```
+```text
 path/to/bundle/
   index.md                      # Optional. Directory listing for progressive disclosure.
   log.md                        # Optional. Chronological history of updates.
@@ -229,7 +242,7 @@ The following headings have **conventional** normative meaning:
 | `## Methodology, Scope & Biases` | Sampling frame, statistical limitations, and data quality caveats. | Auditor / Researcher / Agent |
 | `## Operational Interaction & Example Queries` | Ready-to-execute fenced SQL (`SELECT ...`), CLI commands, or MCP calls. | Agent Tooling / Analyst |
 | `## Data Dictionary & Semantic Anchors` | Structured mapping of column attributes, units of measure, and SKOS URIs. | Human / Machine |
-| `## Computation & Verification` | The sanctioned computation of an Attested Computation. See §10. | Runtime / Verifier |
+| `# Computation` (or `## Computation & Verification`) | The sanctioned computation of an Attested Computation. See §10. | Runtime / Verifier |
 
 Per-claim attribution to external sources uses markdown footnotes keyed to
 `sources` entries rather than a body citations list (§5.1).
@@ -516,8 +529,12 @@ single actor convention:
 - `process:<id>` for an automated process, for example
   `process:finance-nightly`.
 
-Consumers that classify trust (§5.3) key off the `human:` prefix, so
-producers MUST use it for hand-authored or human-confirmed content.
+Consumers that classify trust (§5.3) key off the `human:` prefix in Level 0
+for descriptive human provenance. In Level 1 and Level 2 profiles (§11, §14.5),
+elevated trust tiers (`verified`, `official`) MUST NOT rely on string prefixes
+alone and require verifiable cryptographic signatures (`did:github:<username>`,
+OpenSSH `ssh-ed25519` key fingerprints, or Ed25519 signatures declared in
+`signatures[]`).
 
 ---
 
@@ -622,6 +639,15 @@ concept carries:
   SQL the job actually executed).
 - `attester`: The deterministic check. `resource` names code (no LLM) that
   takes a receipt and returns a verdict. It is meant to run consumer-side.
+  
+  **Attester Sandboxing Invariant (Security):** Because an `attester.resource`
+  may originate from an untrusted third-party bundle, conforming consumers
+  MUST NOT execute external attester scripts directly on the host system
+  without process isolation. Runtimes MUST execute attester code within a
+  sandboxed execution environment (such as a WebAssembly / WASI runtime with
+  zero host filesystem/network access, or an unprivileged, isolated container
+  with bounded CPU and memory limits), or verify execution through declarative
+  receipt comparison (e.g. AST SQL equality).
 
 What sits behind a `resource` (a Skill, a script, a container) is a
 packaging choice; OKF fixes the interface, not the packaging (§1).
@@ -651,9 +677,11 @@ sources:
 
 # Computation
 
-    SELECT SUM(amount) AS revenue
-    FROM finance.recognized_revenue
-    WHERE fiscal_year = @year
+```sql
+SELECT SUM(amount) AS revenue
+FROM finance.recognized_revenue
+WHERE fiscal_year = @year
+```
 
 The computation binds only the declared `parameters`, per the recognition
 policy.[^rev-policy]
@@ -768,6 +796,20 @@ A bundle is **conformant** with OKF v0.2 (`level-0-core`) if:
 3. Every reserved filename (`index.md`, `log.md`) follows the structure in
    §8 and §9 respectively when present. In single-dataset ODKF nodes (`level-1-contracts`), a root `index.md` MAY act as the primary Root Concept Manifest when it declares an explicit `type` (e.g., `dcat:Dataset`, `dcat:DataService`, or `dcat:CatalogRecord`).
 
+A bundle or dataset is **conformant with Level 1 (`level-1-contracts`)** if:
+
+1. It satisfies all Level 0 requirements.
+2. Every declared contract in `contracts[]` resolves to a valid local path (`path`) or reachable URI (`ref`).
+3. Every resource reference conforms to the Canonical Triad grammar (§14.4).
+4. If `type == dataset`, ontological anchors in `skos` are valid HTTP/HTTPS URIs.
+5. All validation rules `RULE-01` through `RULE-12` (§14.5) pass with zero `ERROR` issues.
+
+A node or catalog deployment is **conformant with Level 2 (`level-2-sovereign`)** if:
+
+1. It satisfies all Level 1 requirements.
+2. Every digital signature declared in `signatures[]` verifies cryptographically against the publisher's public key or verified identity (`did:github`, OpenSSH `ssh-ed25519`).
+3. Sovereign resource addresses resolve across federated registries (§14.4) or P2P transports ([RFC 0001](docs/rfcs/0001-p2p-sovereign-network.md)).
+
 When the trust, lifecycle, provenance, or computation families are
 present, producers SHOULD follow §5 through §10, and consumers:
 
@@ -806,7 +848,7 @@ bundle.
 
 ### 12.1 Standardized `AttestationVerdict` Wire Format (`okf attest`)
 
-To enable deterministic CLI and consumer verification (`okf attest <concept.md> --sql <query_or_receipt>`), any conforming attester MUST emit a JSON object over `stdout` adhering to the following contract:
+To enable deterministic verification (`okf attest <concept.md> --receipt <json_or_path>` or `--sql <query>`), any conforming attester MUST emit a JSON object over `stdout` adhering to the following contract:
 
 ```json
 {
@@ -824,11 +866,11 @@ When evolving bundles or `datapackage` contracts across versions (`supersedes` /
 - **MINOR:** Backward-compatible additions (new optional columns, new resources, or new concept nodes).
 - **MAJOR (Breaking):** Removal or renaming of columns/resources, data type mutations, or changes to physical units (**UCUM/QUDT**) or ontological anchors (`rdfType` / `skos`).
 
-### Considered and deferred
+### 12.3 Considered and Deferred
 
 The following are intentionally left to a future revision:
 
-- The attester sandboxing ABI and remote attestation caching.
+- The standardized attester sandboxing ABI and remote attestation caching.
 - Semantic-layer templates (Looker, dbt) where the attester comparison
   shifts from SQL equality to model-and-binding equality.
 
@@ -869,182 +911,6 @@ Everything else (bundle structure, reserved filenames, the required
 `type`, recommended `title`/`description`/`resource`/`tags`, cross-linking,
 index files, log files, permissive conformance) is carried forward
 unchanged.
-
----
-
-## Appendix A: Worked example, an income statement
-
-One bundle exercising every family, shown as a v0.1 to v0.2 migration of an
-income statement with two figures, revenue and gross profit.
-
-### v0.1 form
-
-A single doc: both figures in one concept, the SQL in prose an agent can
-read, ignore, or rewrite, citations a flat list, and the only timestamp is
-`timestamp`.
-
-```markdown
----
-type: Metric
-title: Income statement (fiscal year)
-description: Headline income-statement figures for a fiscal year.
-tags: [finance, income-statement]
-timestamp: '2026-05-28T22:53:05+00:00'
----
-
-# Definition
-The income statement reports revenue and gross profit for a fiscal year.
-
-# Revenue
-Recognized revenue sums `amount` over rows booked to the fiscal year:
-
-    SELECT SUM(amount) AS revenue
-    FROM finance.recognized_revenue
-    WHERE fiscal_year = <year>
-
-# Gross profit
-Gross profit by segment, per the cost-allocation standard:
-
-    SELECT gross_profit FROM fct_income_statement
-    WHERE fiscal_year = <year> AND segment = <segment>
-
-# Citations
-- https://wiki.acme/finance/fpa-handbook
-- https://wiki.acme/finance/revenue-recognition
-- https://wiki.acme/finance/cost-allocation
-```
-
-### v0.2 form
-
-The two figures split into attested computations linked from a narrative
-concept. Every family is populated, and the two computations sit in
-deliberately different states so one consumer reaches two verdicts.
-
-```
-bundles/finance/
-  metrics/income-statement.md      type: Metric  (narrates, links both)
-  computations/revenue.md          type: Attested Computation  (runtime: bigquery)
-  computations/profit.md           type: Attested Computation  (runtime: dbt)
-  references/skills/run-on-bq.md, run-dbt.md
-  references/attesters/sql-equality.py, dbt-binding.py
-```
-
-`metrics/income-statement.md`, the readable doc; trust lives on what it
-links, not here:
-
-```markdown
----
-type: Metric
-title: Income statement (fiscal year)
-description: Headline income-statement figures for a fiscal year.
-tags: [finance, income-statement]
-status: stable
-generated: { by: reference_agent/gemini-2.5-pro, at: 2026-06-20T22:53:05Z }
-verified: { by: human:ahormati, at: 2026-06-25T09:00:00Z }
-stale_after: 2026-12-31T00:00:00Z
-sources:
-  - id: fpa-handbook
-    resource: https://wiki.acme/finance/fpa-handbook
-    title: FP&A reporting handbook
----
-
-# Definition
-The income statement reports [revenue](../computations/revenue.md) and
-[gross profit](../computations/profit.md) for a fiscal year, per the FP&A
-reporting handbook.[^fpa-handbook] Each figure is produced by a sanctioned,
-attestable computation; this concept only narrates them.
-
-[^fpa-handbook]: FP&A reporting handbook
-```
-
-`computations/revenue.md`, BigQuery SQL, human-verified, fresh, and
-corroborated by a live dashboard source carrying credibility signals:
-
-```markdown
----
-type: Attested Computation
-title: Revenue for fiscal year
-description: Recognized revenue for a fiscal year, per Finance's definition.
-tags: [finance, revenue]
-status: stable
-runtime: bigquery
-parameters:
-  - { name: year, type: integer, required: true }
-executor:
-  resource: references/skills/run-on-bq.md
-  receipt: [job_id, executed_sql, result]
-attester:
-  resource: references/attesters/sql-equality.py
-generated: { by: reference_agent/gemini-2.5-pro, at: 2026-06-28T14:00:00Z }
-verified: { by: human:ahormati, at: 2026-06-25T09:00:00Z }
-stale_after: 2026-12-31T00:00:00Z
-sources:
-  - id: rev-policy
-    resource: https://wiki.acme/finance/revenue-recognition
-    title: Revenue recognition policy
-    author: team:finance-fpa
-    last_modified: 2026-04-02T00:00:00Z
-  - id: exec-rev-dash
-    resource: dashboards/exec-revenue
-    title: Executive revenue dashboard
-    author: team:finance-fpa
-    usage_count: 5000
-    last_modified: 2026-06-18T00:00:00Z
-usage_window: { from: 2026-06-01T00:00:00Z, to: 2026-06-30T00:00:00Z }
----
-
-# Computation
-
-    SELECT SUM(amount) AS revenue
-    FROM finance.recognized_revenue
-    WHERE fiscal_year = @year
-
-Recognized revenue per the recognition policy,[^rev-policy] corroborated by
-the executive revenue dashboard.[^exec-rev-dash]
-
-[^rev-policy]: Revenue recognition policy
-[^exec-rev-dash]: Executive revenue dashboard
-```
-
-`computations/profit.md`, a dbt model, process-verified, and past its
-`stale_after`:
-
-```markdown
----
-type: Attested Computation
-title: Gross profit for fiscal year
-description: Gross profit by segment for a fiscal year, per the cost-allocation standard.
-tags: [finance, profit]
-status: stable
-runtime: dbt
-parameters:
-  - { name: year, type: integer, required: true }
-  - { name: segment, type: string, required: true }
-executor:
-  resource: references/skills/run-dbt.md
-  receipt: [run_id, compiled_sql, result]
-attester:
-  resource: references/attesters/dbt-binding.py
-generated: { by: reference_agent/gemini-2.5-pro, at: 2026-06-14T14:00:00Z }
-verified: { by: process:finance-nightly, at: 2026-06-12T08:00:00Z }
-stale_after: 2026-06-15T00:00:00Z
-sources:
-  - id: cost-alloc
-    resource: https://wiki.acme/finance/cost-allocation
-    title: Cost allocation standard
----
-
-# Computation
-
-    SELECT gross_profit
-    FROM {{ ref('fct_income_statement') }}
-    WHERE fiscal_year = {{ var('year') }}
-      AND segment = {{ var('segment') }}
-
-Gross profit by segment per the cost-allocation standard.[^cost-alloc]
-
-[^cost-alloc]: Cost allocation standard
-```
 
 ---
 
@@ -1136,6 +1002,13 @@ policies:
     ref: https://www.w3.org/ns/odrl/2/policy.json
   - type: opa
     path: policies/privacy_guard.rego
+
+# --- Digital Signatures & Cryptographic Provenance (ODKF v0.2) ---
+signatures:                            # OPTIONAL. Cryptographic authorship proofs
+  - key_id: did:github:andreschirinos  # Public key identity / DID
+    algorithm: ssh-ed25519             # Signature algorithm
+    signature: AAAAC3NzaC1lZDI1NTE5AAAAI...
+    verified: true
 ---
 ```
 
@@ -1148,10 +1021,10 @@ Because OKF/ODKF is a **meta-specification** that orchestrates existing domain s
 | **Tabular & Statistical Schemas** | `datapackage`, `sdmx`, `ddi`, `json_schema`, `avro`, `parquet` | Frictionless DataPackage (v1/v2), ISO 17369 (SDMX), DDI, JSON Schema | Tabular schemas, multidimensional cubes, physical units (UCUM/QUDT), value labels. |
 | **Catalog & Geospatial Metadata** | `dcat`, `iso19115`, `stac` | W3C DCAT (v2/v3), ISO 19115, SpatioTemporal Asset Catalog | Public sector distributions, spatial bounding boxes, CRS projections. |
 | **Service & Streaming Interfaces** | `openapi`, `asyncapi`, `graphql`, `grpc`, `flight_sql` | OpenAPI v3.0/v3.1, AsyncAPI, GraphQL, Arrow Flight SQL | Dynamic REST/RPC services, event streams, federated SQL endpoints. |
-| **Executable Pipelines** | `cwl`, `cli_tool`, `dbt` | Common Workflow Language (`CommandLineTool`), reproducible scripts | Deterministic batch transformations, CLI parameters, output bindings. |
+| **Executable Pipelines & Tools** | `cwl`, `owl-cli`, `okf-cli`, `cli_tool`, `dbt` | Common Workflow Language (`CommandLineTool`), semantic CLI contracts | Deterministic batch transformations, CLI parameters, output bindings. |
 | **Governance & Privacy Policies** | `okf_builtin`, `odrl`, `opa`, `rego`, `dpv`, `xacml` | Built-in (`allow_all`, `zero_microdata`, `deny`), W3C ODRL 2.2, OPA/Rego, W3C DPV | Access control, $k$-anonymity cohort thresholds (`min_group_size`), differential privacy ($\epsilon$), deontic rights. |
 
-### 14.3.1 Semantic Correspondence Resolution (`ValueLabel` $\rightarrow$ `Concept` $\rightarrow$ `SKOS`)
+#### 14.3.1 Semantic Correspondence Resolution (`ValueLabel` $\rightarrow$ `Concept` $\rightarrow$ `SKOS`)
 
 To resolve semantic heterogeneity across independent datasets without hardcoding domain-specific dictionaries into the core runtime, ODKF resolves correspondences through a three-layer semantic chain:
 
@@ -1160,32 +1033,37 @@ To resolve semantic heterogeneity across independent datasets without hardcoding
    - **External Ontologies:** Universal URIs such as Wikidata (`http://www.wikidata.org/entity/Q1491`), Schema.org, GeoNames, or QUDT.
    - **Cross-Dataset Concepts:** Direct references to concept documents in other datasets (`exact_match: ["censo_2024:concepts/mun_020101.md"]`).
 3. **Deterministic Graph Correspondence & SQL Join Generation:** Two heterogeneous datasets $A$ and $B$ match on `ValueLabel` $v_A \in A$ and `ValueLabel` $v_B \in B$ whenever their linked concepts $C_A$ and $C_B$ either reference each other directly (`direct_concept_ref`) or share a common ontological URI in `exact_match`, `skos`, or `close_match`. The core engine compiles these correspondences into deterministic ANSI SQL `CASE ... END` projections for cross-dataset `JOIN` execution.
+   
+   **Transitive Match Constraint:** Because `skos:closeMatch` is inherently non-transitive and lacks cardinality constraints, automatic SQL generation MUST restrict joins to verified correspondences or `skos:exactMatch` to prevent Cartesian join explosions.
 
 ### 14.4 Canonical Triad Addressing
 
-ODKF v0.2 mandates a sovereign, universal resource addressing scheme:
+**Purpose & Architectural Principle:** The Canonical Triad is the unified, concise, and universal shorthand for addressing any dataset resource or executable service across the mesh. It decouples the logical reference from physical storage or network transport, allowing humans, SQL engines, and AI agents to reference data assets unambiguously.
 
+Conforming engines, CLIs, and agents MUST support all **five canonical representations**:
+
+1. **Canonical Colon Shorthand:** `[catalog:]dataset:resource` (e.g. `bolivia:elecciones:votos`)
+2. **Path / Slash Shorthand:** `[catalog/]dataset/resource` (e.g. `bolivia/elecciones/votos`)
+3. **Reverse DNS Sovereign Address:** `<dataset>.<resource>@<catalog>` (e.g. `elecciones.votos@bolivia`)
+4. **Sovereign URI Scheme:** `okf://[catalog/]dataset/resource` (along with aliases `datamesh://` and `odkf://`)
+5. **Direct Physical / HTTP URL:** `https://.../dataset/resource.csv` or `file:///.../dataset/resource.parquet`
+
+#### 14.4.1 Composite Archive Subfile Addressing (`#fragment`)
+
+All five triad forms support standard RFC 3986 fragment identifiers (`#subpath/file.csv`). When pointing to composite archive resources (ZIP, TAR), downstream runtimes use the fragment identifier to perform zero-copy, selective subfile extraction in memory (using HTTP Range requests RFC 7233) without downloading the full archive:
+
+```text
+# Examples of composite archive subfile addressing
+bolivia:censo_2024:cartografia#departamentos/lapaz.geojson
+okf://bolivia/censo_2024/cartografia#departamentos/lapaz.geojson
+censo_2024.cartografia@bolivia#departamentos/lapaz.geojson
 ```
-[catalog]:[dataset]:[resource]
-```
 
-Or path-equivalent notation:
+#### 14.4.2 SQL Integration & Lexical Disambiguation
 
-```
-[catalog]/[dataset]/[resource]
-```
+Engines MUST accept single-quoted `'bolivia:elecciones:votos'`, double-quoted `"bolivia:elecciones:votos"`, and backtick-quoted `` `bolivia:elecciones:votos` `` in SQL queries, transparently mapping them to resolved paths.
 
-- **`catalog`**: Sovereign namespace identifier (e.g., `bolivia`, `air_quality`, `p2p-bob-exchange`).
-- **`dataset`**: Node directory or concept identifier within the catalog.
-- **`resource`**: Specific physical table or file declared in the concept's `datapackage` or `dcat` contract.
-
-Engines MUST accept both single-quoted `'bolivia:elecciones:votos'` and double-quoted `"bolivia:elecciones:votos"` in SQL queries, transparently mapping them to resolved paths.
-
-The three address forms used across this profile denote the same triple:
-
-- canonical triad: `catalog:dataset:resource` (this section),
-- reverse lookup: `dataset.resource@catalog` (§15.2.1),
-- canonical URI: `okf://catalog/dataset/resource` (§15.2.1).
+**Dot Disambiguation:** When using reverse DNS notation (`<dataset>.<resource>@<catalog>`), if a dataset name contains dots (e.g., `censo.2024`), consumers MUST disambiguate by quoting or use the unambiguous canonical colon form `bolivia:censo.2024:votos`.
 
 ### 14.5 Conformance Invariants and Validation Rules
 
@@ -1194,33 +1072,35 @@ The three address forms used across this profile denote the same triple:
 - **PE1 (Markdown + YAML):** Every concept file MUST be valid UTF-8 Markdown beginning with a YAML frontmatter delimited by `---`.
 - **PE2 (Mandatory `type`):** The frontmatter MUST include a non-empty `type` string.
 - **PE3 (Reserved Files Integrity):** `index.md` and `log.md` MUST NOT define single-concept frontmatters; they serve directory listing and update chronologies.
-- **PE4 (Syntactic Contracts Validity):** If `contracts` is specified, each item MUST declare a valid `type` and an accessible `path` (relative local path or absolute HTTP/HTTPS URI).
+- **PE4 (Syntactic Contracts Validity):** If `contracts` is specified, each item MUST declare a valid `type` and an accessible `path` (relative local path) or `ref` (absolute HTTP/HTTPS URI).
 - **PE5 (Cryptographic Hash Integrity):** All declared hashes in `lineage.transformations[].hash` MUST follow the format `sha256:<hex64>` and match the computed SHA-256 digest of the referenced tool.
 
 #### Consumer Invariants (OE1–OE5)
 
 - **OE1 (Graceful Progressive Disclosure):** Consumers MUST be capable of parsing concept metadata from frontmatter alone without reading the entire body.
 - **OE2 (Format Heterogeneity Tolerance):** Consumers MUST resolve tabular resources regardless of whether the physical target is CSV, TSV, Parquet, or JSON.
-- **OE3 (Zero-Microdata Enforcement):** If a concept or resource declares `policy: zero_microdata`, consumers MUST refuse unauthenticated raw row-level scans (`SELECT *`) and permit only aggregate projections (`COUNT`, `AVG`, `SUM`, `MIN`, `MAX`, `GROUP BY`).
-- **OE4 (Canonical Triad Resolution):** Consumers MUST parse both colon (`:`) and slash (`/`) separated triad formats and resolve them via local workspace files or remote catalogs.
+- **OE3 (Zero-Microdata Enforcement):** If a concept or resource declares `policy: zero_microdata`, consumers MUST refuse unauthenticated raw row-level scans (`SELECT *`) and permit only aggregate projections (`COUNT`, `AVG`, `SUM`, `MIN`, `MAX`, `GROUP BY`). Authenticated identities with `admin`, `analyst`, or `official` trust tiers MAY bypass zero-microdata restrictions when authorized.
+- **OE4 (Canonical Triad Resolution):** Consumers MUST parse all five canonical triad representations (colon, slash, reverse DNS, sovereign URI, direct URL) including `#fragment` subfile identifiers.
 - **OE5 (Air-Gapped / Offline Fallback):** When operating offline, consumers MUST resolve datasets using local cache (`$OKF_HOME/cache` or `.okf/cache`) without failing due to unavailable remote network endpoints.
 
-#### Validation Rules
+#### Validation Rules (RULE-01 to RULE-12)
 
-A conforming ODKF validator MUST execute the invariants above and report
-violations with severity (`ERROR` vs `WARNING`). The rules below make them
-operational; they add no new requirements:
+A conforming ODKF validator MUST execute the invariants above and report violations with severity (`ERROR` vs `WARNING` vs `INFO`):
 
-| Rule | Check | Severity |
-| :--- | :--- | :--- |
-| RULE-01 | YAML frontmatter parses. | ERROR |
-| RULE-02 | `type` is present and non-empty (PE2). | ERROR |
-| RULE-03 | If `type == dataset`, missing `skos` is a WARNING; a malformed `skos` URI is an ERROR. | WARNING / ERROR |
-| RULE-04 | Every `contracts[]` entry is a map with `type` and `path`; unknown contract types are WARNING; missing local paths are ERROR (PE4). | WARNING / ERROR |
-| RULE-05 | `lineage.transformations[].hash` matches `^sha256:[a-fA-F0-9]{64}$` (PE5). | ERROR |
-| RULE-06 | `policy` is one of `allow_all`, `zero_microdata`, `deny`. | ERROR |
-| RULE-07 | A bundle contains at least one concept; traversal detects cycles and stops. A cycle is a WARNING, not a bundle error, because core OKF tolerates arbitrary links (§6.1). | WARNING |
-| RULE-08 | A canonical triad has 2–3 components matching `^[a-zA-Z0-9_.-]+:[a-zA-Z0-9_. -]+(:[a-zA-Z0-9_. -]+)?$`. | ERROR |
+| Rule | Check | Severity | Reference |
+| :--- | :--- | :--- | :--- |
+| **RULE-01** | YAML frontmatter parses correctly. | ERROR | PE1 |
+| **RULE-02** | `type` is present and non-empty. | ERROR | PE2 |
+| **RULE-03** | If `type == dataset`, missing `skos` is a WARNING; a malformed `skos` URI is an ERROR. | WARNING / ERROR | §14.2 |
+| **RULE-04** | Every `contracts[]` entry is a map with `type` and `path` (or `ref`); unknown contract types emit WARNING; missing local paths emit WARNING (`PE4-CONTRACT-LOCAL-NOT-FOUND`). | WARNING | PE4 |
+| **RULE-05** | `lineage.transformations[].hash` matches `^sha256:[a-fA-F0-9]{64}$`. | ERROR | PE5 |
+| **RULE-06** | `policy` matches `allow_all`, `zero_microdata`, `deny`, or points to a valid structured policy definition / engine (ODRL, OPA, DPV). | ERROR | §14.2 |
+| **RULE-07** | A bundle contains at least one concept; an empty bundle emits `RULE-07-EMPTY-BUNDLE`. Traversal detects cycles and stops (`RULE-12`). | ERROR | §11 |
+| **RULE-08** | A canonical triad has 2–3 components matching `^[a-zA-Z0-9_.-]+:[a-zA-Z0-9_. -]+(:[a-zA-Z0-9_. -]+)?(#.*)?$`. | ERROR | §14.4 |
+| **RULE-09** | Actor format: `generated.by` and `verified[].by` must follow canonical actor conventions (`agent:<name>`, `human:<name>`, `<email>`, or URI). | WARNING / ERROR | §7 |
+| **RULE-10** | Status lifecycle: `status` must be a valid canonical status enum; if `status == superseded`, `superseded_by` is REQUIRED. | WARNING / ERROR | §5.4 |
+| **RULE-11** | Temporal syntax: `expires`, `stale_after`, `cadence`, `generated.at`, and `verified[].at` must be valid ISO 8601 timestamps or durations. | ERROR | §5.5 |
+| **RULE-12** | Graph integrity: Structural relations (`supersedes`, `superseded_by`, `derived_from`, `in_catalog`) must form a strict Directed Acyclic Graph (DAG) (cycle is ERROR); body navigational links allow cycles (WARNING). | ERROR / WARNING | §6.1 |
 
 ### 14.6 Ultra-Lightweight Catalog Profile (`llms.txt` / `index.md` Conformance)
 
@@ -1262,18 +1142,16 @@ Conforming consumers and SDK engines (such as `datamesh-sdk`) MUST:
 
 ---
 
-## 15. Decentralized & Peer-to-Peer (P2P) Network Specification (OKF-P2P)
+## 15. Decentralized & Peer-to-Peer (P2P) Sovereign Network Profile (OKF-P2P)
 
-To eliminate single points of failure, resist censorship, and guarantee
-data sovereignty without centralized cloud providers, the ODKF profile
-defines an optional **Peer-to-Peer (P2P) and Distributed Network
-Protocol**. A core OKF bundle does not require it. Nodes that advertise
-OKF-P2P conformance MUST implement the requirements in this chapter.
+To eliminate single points of failure, resist censorship, and guarantee data sovereignty across federated institutions without centralized cloud providers, the ODKF profile defines an optional **Peer-to-Peer (P2P) and Distributed Network Profile** (`level-2-sovereign`). 
 
-### 15.1 Node Identity & Content Addressing
+Core OKF bundles and Level 1 Data Products DO NOT require P2P networking; static HTTP/S, S3/MinIO, and Git repositories satisfy all operational discovery and sharing requirements. Nodes that explicitly advertise OKF-P2P conformance implement the protocol summarized here and formally specified in [RFC 0001: OKF Peer-to-Peer Sovereign Network Specification](docs/rfcs/0001-p2p-sovereign-network.md).
+
+### 15.1 Sovereign Node Identity & Content Addressing
 
 1. **Sovereign Node Identity (`NodeID`):**
-   - Each sovereign node in the OKF network possesses a cryptographic key pair (Ed25519).
+   - Each sovereign node in the OKF network possesses an Ed25519 cryptographic key pair.
    - The canonical `NodeID` is derived as the multihash digest of the node's public key (e.g., `12D3KooW...` format compatible with libp2p PeerIDs).
    - Nodes sign all catalog announcements, metadata manifests, and resolution answers with this private key.
 
@@ -1283,90 +1161,27 @@ OKF-P2P conformance MUST implement the requirements in this chapter.
 
 ### 15.2 Decentralized Naming & Resolution Protocol ("Sovereign Data DNS")
 
-ODKF defines a decentralized naming and query protocol analogous to the Internet Domain Name System (DNS), but operated entirely over a Distributed Hash Table (DHT) and cryptographic registries without centralized root servers (ICANN).
+ODKF defines a decentralized naming and query protocol operated over a Distributed Hash Table (DHT) and cryptographic registries:
 
-#### 15.2.1 Resolution Syntax & Grammar
+- **Reverse-Lookup Query Syntax:** `<dataset>.<resource>@<catalog>`
+- **Sovereign URI Scheme:** `okf://<catalog>/<dataset>/<resource>`
+- **Typed Resolution Records:** Resolution queries return typed cryptographic records:
+  - `SOA`: Start of Authority (owner NodeID, public key, trust tier).
+  - `CAT`: Catalog manifest pointer (CID of `llms.txt` or `index.md`).
+  - `RES`: Physical resource locations (multiaddresses, HTTP, S3, Bitswap).
+  - `SCH`: Syntactic schema contract pointer (Frictionless / Table Schema).
+  - `LIN`: Lineage activity digest and upstream inputs.
+  - `SRV`: Dynamic service endpoint (DuckDB Flight SQL, Arrow Flight).
 
-Engines, CLIs, and agents MUST support the reverse-lookup query syntax:
+### 15.3 Security, Sybil Defenses & Verification Boundary
 
-```
-<dataset>.<resource>@<catalog>
-```
+1. **Integrity vs. Sybil Defense:**
+   - Content hashing (SHA-256 / BLAKE3 CIDs) guarantees **immutable payload integrity** after data is retrieved.
+   - However, content hashing alone **does not prevent Sybil or Eclipse attacks on DHT routing tables**. To prevent malicious actors from eclipsing discovery of sovereign catalogs, participating DHT bootstrap networks MUST employ authenticated node identity tiers (stake-weighted peer scoring, verifiable credential registries, or federated consortium keylists).
+2. **P2P Zero-Microdata Policy:**
+   - If a concept specifies `policy: zero_microdata`, conforming peer nodes MUST refuse binary block transfers of raw microdata to unauthenticated peers, offering instead dynamic SQL aggregate queries via Flight SQL over authenticated TLS sessions.
 
-Or fully-qualified sovereign URI notation:
-
-```
-okf://<catalog>/<dataset>/<resource>
-```
-
-These are the same triple introduced in §14.4, expressed in reverse-lookup and URI form.
-
-#### 15.2.2 The `okf-dig` Diagnostic and Resolution Command
-
-A conforming node or client tool implements a resolution utility (conceptually equivalent to `dig` in classic DNS):
-
-```bash
-# Querying a sovereign dataset resource
-okf-dig elecciones_2025.votos_municipales@bolivia
-
-# Diagnostic query with full cryptographic lineage and peer records
-okf-dig +trace +crypto calidad_aire.pm25_horario@lapaz_alcaldia
-```
-
-#### 15.2.3 OKF Sovereign Resource Record Types
-
-Resolution queries return typed cryptographic records:
-
-| Record Type | Name | Purpose | Example Payload |
-| :--- | :--- | :--- | :--- |
-| **`SOA`** | Start of Authority | Identifies the sovereign owner node, its public key, trust tier, and contact multiaddr. | `NodeID: 12D3... PubKey: ed25519:... Tier: tier_1_verified Serial: 2026102101` |
-| **`CAT`** | Catalog Manifest | Points to the CID of the catalog manifest (`llms.txt`, `index.md`, or `catalog.yaml`) and its current version. | `CID: QmXoy... Version: 0.2.0 Status: active` |
-| **`RES`** | Resource Location | Physical locations where the dataset/resource can be fetched (multiaddresses, HTTP, S3, P2P Bitswap). | `Format: parquet Hash: sha256:e3b0c4... Multiaddrs: [/ip4/190.181.2.10/tcp/4001/p2p/12D3..., https://datos.gob.bo/data.parquet]` |
-| **`SCH`** | Syntactic Schema | Direct link to the Frictionless / JSON Schema contract governing the columns. | `Type: frictionless_table_schema Hash: sha256:a1b2... Path: schemas/pm25.json` |
-| **`LIN`** | Lineage & PROV-O | Activity URI, transformation script hash, and upstream inputs (`prov:wasGeneratedBy`). | `Activity: urn:uuid:... ScriptHash: sha256:9f8e... Sources: [senamhi:meteo:raw]` |
-| **`SRV`** | Dynamic Service | Connection endpoint for dynamic / streaming queries (DuckDB Flight SQL, Arrow Flight, WebSocket). | `Proto: flight-sql Port: 8443 TLS: true Auth: ssh-token` |
-
-#### 15.2.4 Resolution Process via Kademlia DHT
-
-1. **Routing lookup:** The resolving client maps the target catalog name (`<catalog>`) to its 256-bit DHT key (`SHA-256("okf:catalog:" + catalog)`).
-2. **Peer retrieval:** The client queries the nearest $k$-peers in the DHT to obtain the provider records of the sovereign node managing `<catalog>`.
-3. **Record verification:** The sovereign node returns signed `SOA` and `CAT` records. The client verifies the Ed25519 signature against trusted public keys or federated trust lists.
-4. **Sub-resource resolution:** Using the catalog's CID, the client retrieves the concept document for `<dataset>` and extracts the `RES` record for `<resource>`.
-5. **Transport selection:** The client chooses the fastest or lowest-cost transport available (local LAN peer via mDNS > direct TCP/QUIC peer > remote HTTPS fallback).
-
-### 15.3 Connectivity, Multiaddresses and Transport Protocols
-
-1. **Multiaddress Standard:**
-   Nodes and data endpoints MUST be addressable via the IETF `multiaddr` standard:
-   ```
-   /ip4/200.87.120.45/tcp/4001/p2p/12D3KooWDpJ7As7BWAbr.../okf/catalog/lapaz/dataset/aire
-   /ip6/2800:cd0:.../udp/4001/quic-v1/p2p/12D3KooW.../okf/stream/flight
-   ```
-
-2. **Transport Agnosticism:**
-   - **QUIC / UDP:** Default WAN transport for low-latency multiplexed streams and robust hole-punching.
-   - **TCP with TLS 1.3:** Enterprise fallback for networks with strict UDP filtering.
-   - **WebSockets / WebRTC:** Browser-based clients, edge dashboards, and WASM environments (e.g., DuckDB-WASM in client browsers).
-
-3. **NAT Traversal & Hole Punching:**
-   - Nodes behind residential or university NATs (typical in Bolivia) MUST implement ICE (Interactive Connectivity Establishment), STUN, and AutoNAT.
-   - When direct connection fails, Circuit Relay (Relay v2) allows mediated transport through authorized university hub nodes without compromising end-to-end payload encryption.
-
-### 15.4 GossipSub & Federated Cache Synchronization
-
-1. **Publish-Subscribe Topics:**
-   - `/okf/announce/<catalog>`: Announcements of new bundles, version bumps, and log updates.
-   - `/okf/revocation`: Real-time cryptographic revocation of compromised keys or corrupt datasets.
-   - `/okf/heartbeat`: Liveness and bandwidth capacity telemetry.
-
-2. **Peer Discovery:**
-   - **Local Discovery:** Zero-configuration discovery via mDNS within institutional networks (e.g., intra-campus university clusters).
-   - **Global Discovery:** Kademlia DHT bootstrap list maintained by academic and public consortium nodes (UDABOL, UMSA, AGETIC).
-
-### 15.5 Security, Sybil Resistance & Zero-Microdata Enforcement
-
-1. **Sybil Resistance:** Peer reputation is scored based on verifiable cryptographic proofs, historical liveness, and trust tiers. Sybil attacks cannot forge resource digests because content is uniquely tied to SHA-256 hashes.
-2. **P2P Zero-Microdata Policy:** If a concept specifies `policy: zero_microdata`, peer nodes MUST refuse binary block transfers of raw microdata to unauthorized peers, offering instead dynamic SQL aggregate queries via Flight SQL over authenticated TLS sessions.
+For full wire specifications, GossipSub topics, multiaddress transport definitions, and NAT hole-punching mechanisms, consult [RFC 0001](docs/rfcs/0001-p2p-sovereign-network.md).
 
 ---
 
@@ -1389,10 +1204,11 @@ Conforming to the principles of Hexagonal Architecture (Alistair Cockburn) and D
 +-----------------------------------------------------------------------------------+
 |                       DOWNSTREAM RUNTIME (datamesh-sdk)                           |
 |                                                                                   |
-|  Storage Adapters:   LocalFile, HttpRange (RFC 7233), S3/MinIO, Kaggle, GDrive    |
-|  Catalog Adapters:   GitStatic (llms.txt), LocalDir, CKAN API, Kademlia DHT P2P   |
-|  Query Adapters:     DuckDB In-Memory (Zero-Copy), Arrow Flight SQL Client        |
-|  Trust Adapters:     SSH Agent, Ed25519 Whitelist, GitHub .keys, SHA-256 Digest   |
+|  Storage Adapters:    LocalFile, HttpRange (RFC 7233), S3/MinIO                   |
+|  Catalog Adapters:    GitStatic (llms.txt), LocalDir, Remote HTTP / P2P           |
+|  Service Connectors:  CKAN Reader (connectors/ckan), OpenAPI, Custom Scripts      |
+|  Query Adapters:      DuckDB In-Memory (Zero-Copy), Arrow Flight SQL Client       |
+|  Trust Adapters:      SSH Agent, Ed25519 Whitelist, GitHub .keys, SHA-256 Digest  |
 +-----------------------------------------------------------------------------------+
 ```
 
@@ -1436,15 +1252,15 @@ The Open Knowledge Format functions as a meta-index bridging disparate internati
 | OKF v0.2 Entity / Concept | W3C DCAT v3 | Frictionless Data Package | Apache Arrow / Parquet | W3C PROV-O | OpenAPI / Flight SQL / CWL |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Catalog** | `dcat:Catalog` | N/A (Registry) | N/A | `prov:Bundle` | N/A |
-| **Catalog Record / Sindicación** | `dcat:CatalogRecord` | N/A | N/A | `prov:Entity` | N/A |
-| **Dataset (Subdominio DDD)** | `dcat:Dataset` | `Package` (`datapackage.json`) | Dataset Namespace | `prov:Entity` | Service Scope |
-| **Recurso Estático** | `dcat:Distribution` | `Resource` (`resources[]`) | `RecordBatch` / Parquet File | N/A | N/A |
-| **Recurso Compuesto (ZIP/TAR)** | `dcat:Distribution` (`packageFormat`) | Multipart Resource | Chunked Table | N/A | Range HTTP Endpoint |
-| **Recurso Dinámico** | `dcat:DataService` | N/A | Arrow Flight Stream | `prov:Activity` | OpenAPI 3.1 / Flight SQL |
-| **Esquema Sintáctico** | `dcat:conformsTo` | `schema` (Table Schema) | `arrow.Schema` | N/A | JSON Schema / Protobuf |
-| **Anclaje Ontológico** | SKOS / Wikidata (`wd:*`) | RDF Mapping Extension | Field Metadata (`ARROW:extension`) | N/A | N/A |
-| **Linaje y Procedencia** | `prov:wasGeneratedBy` | N/A (Custom fields) | N/A | `prov:Activity`, `prov:Agent` | CWL v1.2 Workflow |
-| **Firma y Confianza** | `spdx:checksum` | `hash` (`sha256:...`) | File Metadata Checksum | `prov:wasAttributedTo` | TLS 1.3 Client Certs / SSH |
+| **Catalog Record / Syndication** | `dcat:CatalogRecord` | N/A | N/A | `prov:Entity` | N/A |
+| **Dataset (Domain Boundary)** | `dcat:Dataset` | `Package` (`datapackage.json`) | Dataset Namespace | `prov:Entity` | Service Scope |
+| **Static Resource** | `dcat:Distribution` | `Resource` (`resources[]`) | `RecordBatch` / Parquet File | N/A | N/A |
+| **Composite Resource (ZIP/TAR)** | `dcat:Distribution` (`packageFormat`) | Multipart Resource | Chunked Table | N/A | Range HTTP Endpoint |
+| **Dynamic Service Resource** | `dcat:DataService` | N/A | Arrow Flight Stream | `prov:Activity` | OpenAPI 3.1 / Flight SQL |
+| **Syntactic Schema** | `dcat:conformsTo` | `schema` (Table Schema) | `arrow.Schema` | N/A | JSON Schema / Protobuf |
+| **Ontological Anchor** | SKOS / Wikidata (`wd:*`) | RDF Mapping Extension | Field Metadata (`ARROW:extension`) | N/A | N/A |
+| **Lineage & Provenance** | `prov:wasGeneratedBy` | N/A (Custom fields) | N/A | `prov:Activity`, `prov:Agent` | CWL v1.2 Workflow |
+| **Signature & Cryptographic Trust** | `spdx:checksum` | `hash` (`sha256:...`) | File Metadata Checksum | `prov:wasAttributedTo` | TLS 1.3 Client Certs / SSH |
 
 ### 16.4 W3C Baseline Dictionary, Near-Lossless Translation and Open Extensibility
 
@@ -1489,126 +1305,209 @@ backward compatibility.
 The operational SQLite store acts as the episodic memory for autonomous agents:
 1. **Inspection:** Through semantic MCP tools (`datamesh_get_lineage`), an agent inspects recent execution records, artifact checksums, and upstream derivations.
 2. **Synthesis:** The agent or pipeline synthesizes the attested W3C PROV-O metadata into the concept's frontmatter and its referenced `datapackage` contract (`lineage: { sources, transformations, was_derived_from }`).
-3. **Publication:** The agent verifies the generated package against syntactic contracts (§6) and invokes federated publication (`dm.publish`) to make the data product available across sovereign catalogs.
+3. **Publication:** The agent verifies the generated package against syntactic contracts (§14.2, §14.5) and invokes federated publication (`dm.publish`) to make the data product available across sovereign catalogs.
 
 ---
 
-## 18. Federated Client Storage Architecture: Declarative Configuration vs. Unified Operational State (`metadata.db`)
+## 18. Federated Client Storage Architecture: Declarative Configuration vs. Operational State (`metadata.db`)
 
-### 18.1 Storage Partitioning Principle (Human Intent vs. Operational Cache)
-An ODKF runtime MUST keep a strict boundary between declarative user configuration and machine-generated operational cache:
-1. **Declarative User Configuration (`okf.yaml` / `trust.yaml`; the reference SDK may use `datamesh.yaml`):**
-   - All explicit human intents, including catalog seed URLs, network timeouts, local workspace roots, query engine defaults (`duckdb`, `inmem`, `go`), and *Root Trust Anchors* (cryptographic author allowlists, SSH public key fingerprints, verification policies `strict` vs `permissive`), MUST reside in human-readable, version-controllable YAML/TOML/JSON text files.
-   - Deleting the operational cache MUST NEVER delete or alter human configuration.
-2. **Unified Operational Cache (`metadata.db`):**
-   - All high-frequency, machine-generated, derived, or ephemeral runtime data MUST reside in an embedded SQLite database (`$OKF_HOME/metadata.db` or `.okf/metadata.db`; the reference SDK may use `.datamesh/metadata.db`).
-   - If `metadata.db` is purged or lost, the client runtime MUST self-heal seamlessly by re-probing endpoints, re-fetching keys, and re-downloading resources upon next access.
+### 18.1 Storage Partitioning Principle (Human Intent vs. Operational State)
 
-### 18.2 Relational Schema of `metadata.db`
-The client database unifies resource caching, sovereign endpoint discovery, public key caching, and operational lineage:
+An ODKF runtime MUST maintain a strict boundary between declarative user configuration and machine-generated operational state:
+
+1. **Declarative User Configuration (`okf.yaml` / `trust.yaml`):**
+   - Explicit human intents, including catalog seed URLs, network timeouts, local workspace roots, query engine defaults (`duckdb`, `inmem`), and *Root Trust Anchors* (cryptographic author allowlists, OpenSSH public key fingerprints, verification policies `strict` vs `permissive`), MUST reside in human-readable, version-controlled YAML/JSON text files.
+   - Deleting operational caches MUST NEVER alter human configuration files.
+2. **Operational State & Persistent Lineage:**
+   - Client runtimes manage local caching and execution lineage via an embedded SQLite database (`$OKF_HOME/metadata.db` or `.okf/metadata.db`).
+   - **Architectural Boundary:** Runtimes MUST distinguish between:
+     - **Disposable Caches (`cache_entries`, `dns_cache`, `keys_cache`):** Ephemeral data that can be safely purged. If deleted, the runtime self-heals by re-probing endpoints, re-fetching keys, and re-downloading resources upon next access.
+     - **Persistent Lineage Ledger (`executions`, `lineage_sources`, `lineage_transformations`, `artifacts`):** The local cryptographic audit trail of computations and transformations. Runtimes SHOULD export this lineage to `log.md` or PROV-O manifests before purging local state.
+
+### 18.2 Relational Schema & Connection Invariants
+
+The normative relational schema for `metadata.db`, table definitions (`cache_entries`, `dns_cache`, `keys_cache`, `executions`, `lineage_sources`, `lineage_transformations`, `artifacts`), mandatory SQLite connection invariants (`PRAGMA foreign_keys = ON;`, `PRAGMA journal_mode = WAL;`, `PRAGMA busy_timeout = 5000;`), and schema migration strategies (`PRAGMA user_version`) are fully documented in [OKF Client Operational State Architecture](docs/architecture/operational-state-store.md).
+
+---
+
+# Appendix A: Worked Example, an Income Statement
+
+One bundle exercising every family, shown as a v0.1 to v0.2 migration of an
+income statement with two figures, revenue and gross profit.
+
+### v0.1 Form
+
+A single doc: both figures in one concept, the SQL in prose an agent can
+read, ignore, or rewrite, citations a flat list, and the only timestamp is
+`timestamp`.
+
+```markdown
+---
+type: Metric
+title: Income statement (fiscal year)
+description: Headline income-statement figures for a fiscal year.
+tags: [finance, income-statement]
+timestamp: '2026-05-28T22:53:05+00:00'
+---
+
+# Definition
+The income statement reports revenue and gross profit for a fiscal year.
+
+# Revenue
+Recognized revenue sums `amount` over rows booked to the fiscal year:
 
 ```sql
--- 1. Downloaded Resource Cache
-CREATE TABLE IF NOT EXISTS cache_entries (
-    key TEXT PRIMARY KEY,
-    original_uri TEXT NOT NULL,
-    local_path TEXT NOT NULL,
-    format TEXT NOT NULL,
-    size_bytes INTEGER NOT NULL,
-    cached_at TEXT NOT NULL,
-    etag TEXT,
-    sha256 TEXT,
-    source_service TEXT,
-    update_frequency TEXT,
-    last_accessed TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_cache_uri ON cache_entries(original_uri);
-CREATE INDEX IF NOT EXISTS idx_cache_path ON cache_entries(local_path);
-
--- 2. Sovereign Endpoint & DNS Probing Cache
-CREATE TABLE IF NOT EXISTS dns_cache (
-    host_or_triad TEXT PRIMARY KEY,
-    resolved_endpoint TEXT NOT NULL,
-    capabilities_json TEXT,         -- JSON payload from /.well-known/datamesh.json
-    auth_type TEXT DEFAULT 'none',  -- 'keycloak', 'api_key', 'none'
-    probe_status TEXT NOT NULL,     -- 'ACTIVE', 'UNREACHABLE', 'DEGRADED'
-    latency_ms INTEGER,
-    probed_at TEXT NOT NULL,
-    ttl_seconds INTEGER DEFAULT 86400
-);
-CREATE INDEX IF NOT EXISTS idx_dns_status ON dns_cache(probe_status);
-
--- 3. Ephemeral Cryptographic Public Key Cache
-CREATE TABLE IF NOT EXISTS keys_cache (
-    identity_id TEXT NOT NULL,       -- e.g. 'github:andreschirinos'
-    fingerprint TEXT NOT NULL,      -- SHA-256 fingerprint
-    key_type TEXT NOT NULL,         -- 'ssh-ed25519', 'ssh-rsa'
-    public_key TEXT NOT NULL,       -- Raw OpenSSH public key
-    fetched_at TEXT NOT NULL,
-    ttl_seconds INTEGER DEFAULT 604800, -- 7 days
-    PRIMARY KEY(identity_id, fingerprint)
-);
-
--- 4. Lineage Executions, Sources, Transformations, and Artifacts
-CREATE TABLE IF NOT EXISTS executions (
-    id TEXT PRIMARY KEY,
-    target_triad TEXT NOT NULL,
-    script_path TEXT,
-    entrypoint TEXT,
-    command TEXT,
-    status TEXT NOT NULL, -- 'SUCCESS', 'FAILED', 'RUNNING'
-    exit_code INTEGER,
-    started_at TEXT NOT NULL,
-    completed_at TEXT,
-    duration_ms INTEGER,
-    user_identity TEXT
-);
-
-CREATE TABLE IF NOT EXISTS lineage_sources (
-    id TEXT PRIMARY KEY,
-    execution_id TEXT NOT NULL,
-    source_name TEXT NOT NULL,
-    source_uri TEXT NOT NULL,
-    source_hash TEXT,
-    format TEXT,
-    cache_key TEXT,
-    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE,
-    FOREIGN KEY(cache_key) REFERENCES cache_entries(key) ON DELETE SET NULL
-);
-
-CREATE TABLE IF NOT EXISTS lineage_transformations (
-    id TEXT PRIMARY KEY,
-    execution_id TEXT NOT NULL,
-    step_name TEXT NOT NULL,
-    tool TEXT NOT NULL,
-    code_hash TEXT NOT NULL,
-    query_text TEXT,
-    parameters_json TEXT,
-    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS artifacts (
-    id TEXT PRIMARY KEY,
-    execution_id TEXT NOT NULL,
-    path TEXT NOT NULL,
-    sha256 TEXT NOT NULL,
-    bytes_size INTEGER NOT NULL,
-    format TEXT NOT NULL,
-    cache_key TEXT,
-    FOREIGN KEY(execution_id) REFERENCES executions(id) ON DELETE CASCADE,
-    FOREIGN KEY(cache_key) REFERENCES cache_entries(key) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_exec_target ON executions(target_triad);
-CREATE INDEX IF NOT EXISTS idx_sources_exec ON lineage_sources(execution_id);
-CREATE INDEX IF NOT EXISTS idx_sources_cache ON lineage_sources(cache_key);
-CREATE INDEX IF NOT EXISTS idx_trans_exec ON lineage_transformations(execution_id);
-CREATE INDEX IF NOT EXISTS idx_art_exec ON artifacts(execution_id);
-CREATE INDEX IF NOT EXISTS idx_art_cache ON artifacts(cache_key);
+SELECT SUM(amount) AS revenue
+FROM finance.recognized_revenue
+WHERE fiscal_year = <year>
 ```
 
-### 18.3 Operational Invariants & Concurrency Best Practices
-1. **Concurrency (WAL Mode):** Runtimes MUST initialize SQLite connections with `PRAGMA journal_mode = WAL;`, `PRAGMA synchronous = NORMAL;`, and a busy timeout (`PRAGMA busy_timeout = 5000;`) to prevent database lock contention across concurrent CLI commands, background agent MCP queries, and interactive analytical notebooks.
-2. **Least Recently Used (LRU) Eviction:** When local storage exceeds the configured threshold (`max_cache_size_bytes`), runtimes MUST evict unreferenced files ordered by `last_accessed ASC`.
-3. **HTTP 304 Revalidation:** For stale cached entries (`now > cached_at + ttl_seconds`), clients MUST issue conditional HTTP requests with `If-None-Match: <etag>`. Upon receiving `304 Not Modified`, the runtime updates `last_accessed` without re-downloading bytes.
-4. **Self-Healing Integrity:** If a physical cached file is deleted externally, the runtime MUST clear the stale database row and trigger a clean fetch.
+# Gross profit
+Gross profit by segment, per the cost-allocation standard:
+
+```sql
+SELECT gross_profit FROM fct_income_statement
+WHERE fiscal_year = <year> AND segment = <segment>
+```
+
+# Citations
+- https://wiki.acme/finance/fpa-handbook
+- https://wiki.acme/finance/revenue-recognition
+- https://wiki.acme/finance/cost-allocation
+```
+
+### v0.2 Form
+
+The two figures split into attested computations linked from a narrative
+concept. Every family is populated, and the two computations sit in
+deliberately different states so one consumer reaches two verdicts.
+
+```text
+bundles/finance/
+  metrics/income-statement.md      type: Metric  (narrates, links both)
+  computations/revenue.md          type: Attested Computation  (runtime: bigquery)
+  computations/profit.md           type: Attested Computation  (runtime: dbt)
+  references/skills/run-on-bq.md, run-dbt.md
+  references/attesters/sql-equality.py, dbt-binding.py
+```
+
+`metrics/income-statement.md`, the readable doc; trust lives on what it
+links, not here:
+
+```markdown
+---
+type: Metric
+title: Income statement (fiscal year)
+description: Headline income-statement figures for a fiscal year.
+tags: [finance, income-statement]
+status: stable
+generated: { by: reference_agent/gemini-2.5-pro, at: 2026-06-20T22:53:05Z }
+verified: { by: human:ahormati, at: 2026-06-25T09:00:00Z }
+stale_after: 2026-12-31T00:00:00Z
+sources:
+  - id: fpa-handbook
+    resource: https://wiki.acme/finance/fpa-handbook
+    title: FP&A reporting handbook
+---
+
+# Definition
+The income statement reports [revenue](../computations/revenue.md) and
+[gross profit](../computations/profit.md) for a fiscal year, per the FP&A
+reporting handbook.[^fpa-handbook] Each figure is produced by a sanctioned,
+attestable computation; this concept only narrates them.
+
+[^fpa-handbook]: FP&A reporting handbook
+```
+
+`computations/revenue.md`, BigQuery SQL, human-verified, fresh, and
+corroborated by a live dashboard source carrying credibility signals:
+
+```markdown
+---
+type: Attested Computation
+title: Revenue for fiscal year
+description: Recognized revenue for a fiscal year, per Finance's definition.
+tags: [finance, revenue]
+status: stable
+runtime: bigquery
+parameters:
+  - { name: year, type: integer, required: true }
+executor:
+  resource: references/skills/run-on-bq.md
+  receipt: [job_id, executed_sql, result]
+attester:
+  resource: references/attesters/revenue.py
+generated: { by: reference_agent/gemini-2.5-pro, at: 2026-06-20T22:53:05Z }
+verified: { by: human:ahormati, at: 2026-06-25T09:00:00Z }
+stale_after: 2026-12-31T00:00:00Z
+sources:
+  - id: rev-policy
+    resource: https://wiki.acme/finance/revenue-recognition
+    title: Revenue recognition policy
+    author: team:finance-fpa
+    last_modified: 2026-04-02T00:00:00Z
+  - id: exec-rev-dash
+    resource: dashboards/exec-revenue
+    title: Executive revenue dashboard
+    author: team:finance-fpa
+    usage_count: 5000
+    last_modified: 2026-06-18T00:00:00Z
+usage_window: { from: 2026-06-01T00:00:00Z, to: 2026-06-30T00:00:00Z }
+---
+
+# Computation
+
+```sql
+SELECT SUM(amount) AS revenue
+FROM finance.recognized_revenue
+WHERE fiscal_year = @year
+```
+
+Recognized revenue per the recognition policy,[^rev-policy] corroborated by
+the executive revenue dashboard.[^exec-rev-dash]
+
+[^rev-policy]: Revenue recognition policy
+[^exec-rev-dash]: Executive revenue dashboard
+```
+
+`computations/profit.md`, a dbt model, process-verified, and past its
+`stale_after`:
+
+```markdown
+---
+type: Attested Computation
+title: Gross profit for fiscal year
+description: Gross profit by segment for a fiscal year, per the cost-allocation standard.
+tags: [finance, profit]
+status: stable
+runtime: dbt
+parameters:
+  - { name: year, type: integer, required: true }
+  - { name: segment, type: string, required: true }
+executor:
+  resource: references/skills/run-dbt.md
+  receipt: [run_id, compiled_sql, result]
+attester:
+  resource: references/attesters/dbt-binding.py
+generated: { by: reference_agent/gemini-2.5-pro, at: 2026-06-14T14:00:00Z }
+verified: { by: process:finance-nightly, at: 2026-06-12T08:00:00Z }
+stale_after: 2026-06-15T00:00:00Z
+sources:
+  - id: cost-alloc
+    resource: https://wiki.acme/finance/cost-allocation
+    title: Cost allocation standard
+---
+
+# Computation
+
+```sql
+SELECT gross_profit
+FROM {{ ref('fct_income_statement') }}
+WHERE fiscal_year = {{ var('year') }}
+  AND segment = {{ var('segment') }}
+```
+
+Gross profit by segment per the cost-allocation standard.[^cost-alloc]
+
+[^cost-alloc]: Cost allocation standard
+```
