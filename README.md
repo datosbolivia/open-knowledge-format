@@ -188,7 +188,7 @@ one shape.
 ### Generate
 
 ```
-./src/bin/okf visualize --bundle ./bundles/<name>
+./bin/okf visualize -bundle ./bundles/<name>
 ```
 
 That writes `bundles/<name>/viz.html`. Flags:
@@ -202,10 +202,10 @@ That writes `bundles/<name>/viz.html`. Flags:
 Example, writing the output somewhere else and overriding the header:
 
 ```
-./src/bin/okf visualize \
-    --bundle ./bundles/crypto_bitcoin \
-    --out /tmp/btc.html \
-    --name "Bitcoin OKF"
+./bin/okf visualize \
+    -bundle ./bundles/crypto_bitcoin \
+    -out /tmp/btc.html \
+    -name "Bitcoin OKF"
 ```
 
 ### How it's built
@@ -232,14 +232,64 @@ The format engine and CLI are built with Go 1.22+:
 
 ```bash
 cd src
-go build -o bin/okf ./cmd/okf
+go build -o ../bin/okf ./cmd/okf
+go build -o ../bin/datamesh ./adapters/inbound/cli
 
 # Run all domain and use case tests
 go test -v ./...
 
 # Validate an OKF concept or bundle
-./bin/okf validate ../bundles/air_quality_bolivia/index.md
+../bin/okf validate ../bundles/air_quality_bolivia/index.md
 
 # Generate interactive visualization
-./bin/okf visualize --bundle ../bundles/air_quality_bolivia --out /tmp/air_viz.html
+../bin/okf visualize -bundle ../bundles/air_quality_bolivia -out /tmp/air_viz.html
+```
+
+---
+
+## Architecture & Subtree Index (EGM Blueprint)
+
+```mermaid
+flowchart LR
+    SPEC["SPEC.md & schemas/ (OKF / ODKF v0.2 Specification)"] --> SRC["src/ (Hexagonal Go Core Engine)"]
+    SRC --> CMD["src/cmd/okf (okf CLI)"]
+    SRC --> ADAPTERS["src/adapters (CLI, HTTP/MCP, C-ABI, WASM, Storage, Manifests, Engine)"]
+    SRC --> USECASES["src/usecases (Application Orchestration & Embedded Viewer)"]
+    SRC --> PORTS["src/ports (Inbound & Outbound Hexagonal Interfaces)"]
+    SRC --> DOMAIN["src/domain (Pure DDD Core, Triads, Validator, Policy, Crypto)"]
+```
+
+| Directory | Contract Document | Architectural Role |
+| :--- | :--- | :--- |
+| [`src/`](./src/README.md) | [`./src/README.md`](./src/README.md) | Hexagonal Go Core Engine (`github.com/datosbolivia/open-knowledge-format/src`) implementing OKF/ODKF v0.2 validation, addressing, governance, lineage, and multi-standard contract synthesis. |
+| [`src/domain/`](./src/domain/README.md) | [`./src/domain/README.md`](./src/domain/README.md) | Pure DDD core entities (`DataProduct`, `ResourceTriad`, `GranularPolicy`, `LineageGraph`), validation rule engine (`PE1`–`PE5`, `RULE-01`–`RULE-12`), Ed25519/SHA-256/`did:github` crypto, and CKAN/DCAT bridges. |
+| [`src/ports/`](./src/ports/README.md) | [`./src/ports/README.md`](./src/ports/README.md) | Technology-agnostic hexagonal boundaries split into [`./src/ports/inbound/README.md`](./src/ports/inbound/README.md) and [`./src/ports/outbound/README.md`](./src/ports/outbound/README.md). |
+| [`src/usecases/`](./src/usecases/README.md) | [`./src/usecases/README.md`](./src/usecases/README.md) | Application orchestration (`InitBundle`, `AddConcept`, `LinkConcepts`, `GenerateIndex`, `AuditBundle`, `BuildGraphAdjacency`, `DiffBundles`, `AttestComputation`, `ExecuteScript`, `ValidateUseCase`, `VisualizeUseCase` with [`./src/usecases/assets/README.md`](./src/usecases/assets/README.md)). |
+| [`src/adapters/`](./src/adapters/README.md) | [`./src/adapters/README.md`](./src/adapters/README.md) | Inbound adapters ([`./src/adapters/inbound/README.md`](./src/adapters/inbound/README.md): [`cli`](./src/adapters/inbound/cli/README.md), [`cshared`](./src/adapters/inbound/cshared/README.md), [`wasm`](./src/adapters/inbound/wasm/README.md)) and outbound adapters ([`./src/adapters/outbound/README.md`](./src/adapters/outbound/README.md): [`config`](./src/adapters/outbound/config/README.md), [`engine`](./src/adapters/outbound/engine/README.md), [`manifests`](./src/adapters/outbound/manifests/README.md), [`resolvers`](./src/adapters/outbound/resolvers/README.md), [`storage`](./src/adapters/outbound/storage/README.md)). |
+| [`src/cmd/`](./src/cmd/README.md) | [`./src/cmd/README.md`](./src/cmd/README.md) | Standalone `okf` CLI entrypoint ([`./src/cmd/okf/README.md`](./src/cmd/okf/README.md)). |
+
+## Interface
+
+- **Normative Specification & Schema**: [`SPEC.md`](./SPEC.md), [`docs/SPECIFICATION_DRIVEN_DESIGN.md`](./docs/SPECIFICATION_DRIVEN_DESIGN.md), and [`schemas/okf-concept.schema.json`](./schemas/okf-concept.schema.json).
+- **CLI Entrypoints**:
+  - `okf` ([`./src/cmd/okf/README.md`](./src/cmd/okf/README.md)): `init`, `add`, `link`, `run`, `audit`, `graph`, `index`, `validate`, `diff`, `attest`, `visualize`, `inspect`, `version`, `help`.
+  - `datamesh` ([`./src/adapters/inbound/cli/README.md`](./src/adapters/inbound/cli/README.md)): `catalog`, `search`, `get`, `validate`, `sql`, `query`, `lineage`, `serve`, `config`.
+- **FFI & WebAssembly Bridges**:
+  - C-Shared ABI ([`./src/adapters/inbound/cshared/README.md`](./src/adapters/inbound/cshared/README.md)): `DataMeshInit`, `DataMeshDiscoverCatalog`, `DataMeshSearchCatalog`, `DataMeshResolveDataProduct`, `DataMeshQueryResource`, `DataMeshExecuteSQL`, `DataMeshValidate`, `DataMeshGetLineage`, `DataMeshLineageGraph`, `DataMeshEvaluatePolicy`, `DataMeshComputeEffectivePolicy`, `DataMeshVerifySignature`, `DataMeshParseOpenSSHKey`, `DataMeshVerifyGitHubIdentity`, `DataMeshResolveConceptCorrespondences`, `DataMeshGenerateCrossDatasetJoinSQL`, `DataMeshDiffBundles`, `DataMeshAttestComputation`, `DataMeshFreeString`.
+  - WebAssembly ([`./src/adapters/inbound/wasm/README.md`](./src/adapters/inbound/wasm/README.md)): `globalThis.DataMesh` (`discover`, `search`, `resolve`, `get`, `query`, `executeSQL`, `validate`, `getConfig`).
+
+## Invariants
+
+1. **Hexagonal Isolation**: Domain rules in [`./src/domain/README.md`](./src/domain/README.md) have zero internal dependencies and depend only on the Go standard library and `gopkg.in/yaml.v3`.
+2. **Conformance Profiles (`level-0-core`, `level-1-contracts`, `level-2-sovereign`)**: Every concept document requires YAML frontmatter delimiters (`PE1-SYNTAX`) and a non-empty open-taxonomy `type` (`PE2-TYPE-REQUIRED`); frontmatter provenance relations (`supersedes`, `superseded_by`, `derived_from`, `in_catalog`) form a strict acyclic DAG (`RULE-12-DAG-CYCLE`).
+3. **Sovereign Security & Privacy Guards**: Outbound HTTP/MCP requests block private/loopback/link-local hosts (`validateOutboundURL`) and local filesystem traversal (`isForbiddenLocalRef`, `FileStorage.resolveSafePath`); `zero_microdata` policies enforce aggregate-only SQL and $k$-anonymity (`MinGroupSize`).
+
+## Side Effects
+
+- Delegates CLI I/O, HTTP/MCP server listening (`127.0.0.1:8000` default), outbound HTTP `GET` fetches, C-heap allocations, WASM global binding, script subprocess execution (`okf run`), and local bundle/cache filesystem writes through [`./src/README.md`](./src/README.md).
+
+## Verification
+
+```bash
+cd src && go test ./...
 ```
