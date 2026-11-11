@@ -300,10 +300,13 @@ func matchConceptNodesSKOS(a, b domain.ConceptNodeSKOS) (sharedAnchor string, pr
 		return shared, "skos_anchor", true
 	}
 
-	// Shared close_match
-	allA := appendUniqueStrings(appendUniqueStrings(nil, a.ExactMatch...), append(a.SKOS, a.CloseMatch...)...)
-	allB := appendUniqueStrings(appendUniqueStrings(nil, b.ExactMatch...), append(b.SKOS, b.CloseMatch...)...)
-	if shared := firstIntersection(allA, allB); shared != "" {
+	// Shared close_match (non-transitive per §14.3.1: at most 1 hop via close_match, never close_match <-> close_match)
+	exactA := appendUniqueStrings(appendUniqueStrings(nil, a.ExactMatch...), a.SKOS...)
+	exactB := appendUniqueStrings(appendUniqueStrings(nil, b.ExactMatch...), b.SKOS...)
+	if shared := firstIntersection(a.CloseMatch, exactB); shared != "" {
+		return shared, "skos:closeMatch", true
+	}
+	if shared := firstIntersection(exactA, b.CloseMatch); shared != "" {
 		return shared, "skos:closeMatch", true
 	}
 

@@ -219,12 +219,16 @@ type PublicationTargetResult struct {
 	Error          string `json:"error,omitempty"`
 }
 
-// Signature encapsulates cryptographic authorship proof (SSH / OpenPGP / Ed25519) per PE4 & ADR 0015.
+// Signature encapsulates cryptographic authorship proof (SSH / OpenPGP / Ed25519) per PE4, ADR 0015 & SPEC.md §14.2.
 type Signature struct {
-	KeyID     string `json:"key_id" yaml:"key_id"`
-	Algorithm string `json:"algorithm" yaml:"algorithm"`
+	Signer    string `json:"signer,omitempty" yaml:"signer,omitempty"`
+	Scheme    string `json:"scheme,omitempty" yaml:"scheme,omitempty"`
+	PublicKey string `json:"public_key,omitempty" yaml:"public_key,omitempty"`
+	KeyID     string `json:"key_id,omitempty" yaml:"key_id,omitempty"`
+	Algorithm string `json:"algorithm,omitempty" yaml:"algorithm,omitempty"`
 	Signature string `json:"signature" yaml:"signature"`
-	Verified  bool   `json:"verified" yaml:"verified"`
+	SignedAt  string `json:"signed_at,omitempty" yaml:"signed_at,omitempty"`
+	Verified  bool   `json:"verified,omitempty" yaml:"verified,omitempty"`
 }
 
 // Manifest represents the frontmatter header specified in OKF / ODKF v0.2.

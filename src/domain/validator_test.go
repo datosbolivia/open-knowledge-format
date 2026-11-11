@@ -255,6 +255,13 @@ func TestParseTriad_SovereignDNS_OKF_Fragments(t *testing.T) {
 			wantRes:  "dengue_2024",
 			wantFrag: "sub.csv",
 		},
+		{
+			raw:      "bcb-semanal.bcb_reservas#divisas.csv",
+			wantCat:  "",
+			wantDs:   "bcb-semanal",
+			wantRes:  "bcb_reservas",
+			wantFrag: "divisas.csv",
+		},
 	}
 
 	for _, tc := range cases {
@@ -265,6 +272,13 @@ func TestParseTriad_SovereignDNS_OKF_Fragments(t *testing.T) {
 		if tr.Catalog != tc.wantCat || tr.Dataset != tc.wantDs || tr.Resource != tc.wantRes || tr.Fragment != tc.wantFrag {
 			t.Errorf("ParseTriad(%q) = %+v, want cat=%s ds=%s res=%s frag=%s",
 				tc.raw, tr, tc.wantCat, tc.wantDs, tc.wantRes, tc.wantFrag)
+		}
+	}
+
+	// §14.4 Dot-notation disambiguation: filenames with recognized extensions must NOT parse as two-part triads
+	for _, fn := range []string{"data.csv", "table.parquet", "index.md", "archive.zip", "config.yaml", "state.sqlite"} {
+		if _, err := ParseTriad(fn); err == nil {
+			t.Errorf("ParseTriad(%q) succeeded, expected rejection as physical filename per §14.4", fn)
 		}
 	}
 }

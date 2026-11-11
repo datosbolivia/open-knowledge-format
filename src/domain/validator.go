@@ -207,6 +207,7 @@ type ConceptFrontmatter struct {
 	Lineage      *LineageSpec           `yaml:"lineage"`
 	Policy       interface{}            `yaml:"policy"`
 	Policies     []PolicySpec           `yaml:"policies"`
+	Signatures   []Signature            `yaml:"signatures"`
 	Extra        map[string]interface{} `yaml:",inline"`
 }
 
@@ -424,6 +425,11 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 			report.AddIssue("RULE-09-ACTOR-FORMAT", SeverityWarning, fmt.Sprintf("verified[%d].by '%s' does not match actor format ('Name <email>', URL, or actor URI prefix)", idx, v.By), filePath, 1)
 		}
 	}
+	for idx, sig := range fm.Signatures {
+		if strings.TrimSpace(sig.Signer) != "" && !actorRegex.MatchString(strings.TrimSpace(sig.Signer)) {
+			report.AddIssue("RULE-09-ACTOR-FORMAT", SeverityWarning, fmt.Sprintf("signatures[%d].signer '%s' does not match actor format ('Name <email>', URL, or actor URI prefix)", idx, sig.Signer), filePath, 1)
+		}
+	}
 
 	// RULE-10: Status Enum & Superseded (§5.3)
 	if strings.TrimSpace(fm.Status) != "" {
@@ -456,6 +462,11 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 	for idx, v := range fm.Verified {
 		if strings.TrimSpace(v.At) != "" && !parseFlexibleTimestamp(v.At) {
 			report.AddIssue("RULE-11-VERIFIED-AT-SYNTAX", SeverityWarning, fmt.Sprintf("verified[%d].at '%s' must be a valid ISO 8601 timestamp", idx, v.At), filePath, 1)
+		}
+	}
+	for idx, sig := range fm.Signatures {
+		if strings.TrimSpace(sig.SignedAt) != "" && !parseFlexibleTimestamp(sig.SignedAt) {
+			report.AddIssue("RULE-11-SIGNED-AT-SYNTAX", SeverityWarning, fmt.Sprintf("signatures[%d].signed_at '%s' must be a valid ISO 8601 timestamp", idx, sig.SignedAt), filePath, 1)
 		}
 	}
 

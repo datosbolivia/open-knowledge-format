@@ -534,6 +534,7 @@ func runDiff(args []string) {
 
 func runAttest(args []string) {
 	fs := flag.NewFlagSet("attest", flag.ExitOnError)
+	receiptFlag := fs.String("receipt", "", "Path to JSON execution receipt or inline JSON receipt string")
 	sqlFlag := fs.String("sql", "", "Executed SQL or JSON receipt to verify against sanctioned computation")
 	paramFlag := fs.String("param", "", "Comma-separated key=val parameter bindings (e.g. year=2026)")
 	parseFlexibleFlags(fs, args)
@@ -553,7 +554,12 @@ func runAttest(args []string) {
 		}
 	}
 
-	verdict, err := usecases.AttestComputation(fs.Args()[0], *sqlFlag, params)
+	sqlOrReceipt := strings.TrimSpace(*sqlFlag)
+	if strings.TrimSpace(*receiptFlag) != "" {
+		sqlOrReceipt = strings.TrimSpace(*receiptFlag)
+	}
+
+	verdict, err := usecases.AttestComputation(fs.Args()[0], sqlOrReceipt, params)
 	outBytes, _ := json.MarshalIndent(verdict, "", "  ")
 	fmt.Println(string(outBytes))
 	if err != nil || verdict.Verdict == "refuted" || verdict.Verdict == "error" {

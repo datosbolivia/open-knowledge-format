@@ -16,7 +16,15 @@ var (
 )
 
 var (
-	whitespaceRegex = regexp.MustCompile(`\s+`)
+	whitespaceRegex     = regexp.MustCompile(`\s+`)
+	knownFileExtensions = map[string]bool{
+		"csv": true, "tsv": true, "parquet": true, "pq": true,
+		"json": true, "jsonl": true, "yaml": true, "yml": true,
+		"zip": true, "md": true, "db": true, "sqlite": true,
+		"sql": true, "py": true, "sh": true, "txt": true,
+		"html": true, "xml": true, "toml": true, "ini": true,
+		"conf": true, "env": true, "pem": true, "key": true, "log": true,
+	}
 )
 
 // NormalizeTriadSegment cleans and standardizes a triad component to lowercase with hyphens replacing whitespace.
@@ -270,6 +278,22 @@ func ParseTriad(raw string) (*ResourceTriad, error) {
 				Resource: res,
 				Fragment: fragment,
 			}, nil
+		}
+	}
+
+	// 6. Two-part dot-separated format ('<dataset>.<resource>') when '<resource>' is not a recognized file extension (§14.4)
+	if strings.Contains(trimmed, ".") && !strings.Contains(trimmed, "/") && !strings.Contains(trimmed, ":") {
+		dotParts := strings.Split(trimmed, ".")
+		if len(dotParts) == 2 {
+			ds := NormalizeTriadSegment(dotParts[0])
+			res := NormalizeTriadSegment(dotParts[1])
+			if ds != "" && res != "" && !knownFileExtensions[res] {
+				return &ResourceTriad{
+					Dataset:  ds,
+					Resource: res,
+					Fragment: fragment,
+				}, nil
+			}
 		}
 	}
 

@@ -256,6 +256,8 @@ func (r *UnifiedMetadataReader) resolveSlugOrTriadTarget(ctx context.Context, ur
 	localPrefixes := []string{
 		"bundles",
 		filepath.Join("..", "bundles"),
+		"connectors",
+		filepath.Join("..", "connectors"),
 		filepath.Join("examples", "bundles"),
 		filepath.Join("knowledge", "nodes"),
 		"nodes",
@@ -372,26 +374,63 @@ func (r *UnifiedMetadataReader) ResolveTriad(ctx context.Context, triad domain.R
 		return nil, false
 	}
 
-	// 1. Search candidate local node and bundle directories via ReadNode (contracts-guided)
+	matchContract := func(contracts []domain.Contract, baseDir string, target string) (string, string, bool) {
+		slug := domain.Slugify(target)
+		for _, c := range contracts {
+			cType := strings.ToLower(strings.TrimSpace(c.Type))
+			cRef := strings.TrimSpace(c.Path)
+			if cRef == "" {
+				cRef = strings.TrimSpace(c.Ref)
+			}
+			cBin := strings.TrimSpace(c.Binary)
+			cSub := strings.TrimSpace(c.Subcommand)
+			if strings.EqualFold(cType, target) || domain.Slugify(cType) == slug ||
+				strings.Contains(strings.ToLower(cRef), strings.ToLower(target)) ||
+				strings.Contains(strings.ToLower(cBin+" "+cSub), strings.ToLower(target)) ||
+				domain.Slugify(cSub) == slug {
+				if cRef != "" {
+					if !filepath.IsAbs(cRef) && !strings.HasPrefix(cRef, "http://") && !strings.HasPrefix(cRef, "https://") {
+						cRef = filepath.Join(baseDir, strings.TrimPrefix(cRef, "./"))
+					}
+					return cRef, cType, true
+				}
+				if cBin != "" {
+					return strings.TrimSpace(cBin + " " + cSub), cType, true
+				}
+			}
+		}
+		return "", "", false
+	}
+
+	// 1. Search candidate local node, bundle, and connector directories via ReadNode (contracts-guided)
 	candidateDirs := []string{
 		filepath.Join("bundles", dataset),
 		filepath.Join("..", "bundles", dataset),
+		filepath.Join("connectors", dataset),
+		filepath.Join("..", "connectors", dataset),
 		filepath.Join("knowledge", "nodes", dataset),
 		filepath.Join("nodes", dataset),
 		filepath.Join("..", "catalogo-datamesh", "knowledge", "nodes", dataset),
 	}
 
 	for _, dir := range candidateDirs {
-		if dp, err := r.ReadNode(ctx, dir); err == nil && len(dp.Resources) > 0 {
-			if matched, ok := matchResource(dp.Resources, resourceName); ok {
-				return applyFragment(matched.Path, matched.Format), nil
-			}
-			// If composite archive has 1 zip resource and triad specifies a #fragment, resolve to that zip + fragment
-			if strings.TrimSpace(triad.Fragment) != "" && len(dp.Resources) > 0 {
-				for _, res := range dp.Resources {
-					if res.Format == "zip" || strings.HasSuffix(strings.ToLower(res.Path), ".zip") {
-						return applyFragment(res.Path, res.Format), nil
+		if dp, err := r.ReadNode(ctx, dir); err == nil {
+			if len(dp.Resources) > 0 {
+				if matched, ok := matchResource(dp.Resources, resourceName); ok {
+					return applyFragment(matched.Path, matched.Format), nil
+				}
+				// If composite archive has 1 zip resource and triad specifies a #fragment, resolve to that zip + fragment
+				if strings.TrimSpace(triad.Fragment) != "" {
+					for _, res := range dp.Resources {
+						if res.Format == "zip" || strings.HasSuffix(strings.ToLower(res.Path), ".zip") {
+							return applyFragment(res.Path, res.Format), nil
+						}
 					}
+				}
+			}
+			if len(dp.Manifest.Contracts) > 0 {
+				if cPath, cFmt, ok := matchContract(dp.Manifest.Contracts, dir, resourceName); ok {
+					return applyFragment(cPath, cFmt), nil
 				}
 			}
 		}

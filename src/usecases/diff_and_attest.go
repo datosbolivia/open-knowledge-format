@@ -358,15 +358,22 @@ func AttestComputation(conceptPath string, executedSQLOrReceipt string, params m
 		}, nil
 	}
 
-	// Extract executed_sql if input is a JSON receipt
-	actualSQL := executedSQLOrReceipt
-	if strings.HasPrefix(strings.TrimSpace(executedSQLOrReceipt), "{") {
+	// Extract executed_sql if input is a JSON receipt string or path to a JSON receipt file
+	actualSQL := strings.TrimSpace(executedSQLOrReceipt)
+	if !strings.HasPrefix(actualSQL, "{") && (strings.HasSuffix(strings.ToLower(actualSQL), ".json") || fileExists(actualSQL)) {
+		if rawReceipt, rErr := os.ReadFile(actualSQL); rErr == nil {
+			actualSQL = strings.TrimSpace(string(rawReceipt))
+		}
+	}
+	if strings.HasPrefix(actualSQL, "{") {
 		var receiptMap map[string]interface{}
-		if err := json.Unmarshal([]byte(executedSQLOrReceipt), &receiptMap); err == nil {
+		if err := json.Unmarshal([]byte(actualSQL), &receiptMap); err == nil {
 			if execSQL, ok := receiptMap["executed_sql"].(string); ok && execSQL != "" {
 				actualSQL = execSQL
 			} else if compSQL, ok := receiptMap["compiled_sql"].(string); ok && compSQL != "" {
 				actualSQL = compSQL
+			} else if qSQL, ok := receiptMap["sql"].(string); ok && qSQL != "" {
+				actualSQL = qSQL
 			}
 		}
 	}
@@ -389,15 +396,24 @@ func AttestComputation(conceptPath string, executedSQLOrReceipt string, params m
 	}, nil
 }
 
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
+}
+
 func extractSanctionedComputation(markdown string, baseDir string) string {
 	parts := strings.Split(markdown, "---")
 	if len(parts) >= 3 {
 		var fm map[string]interface{}
 		if err := yaml.Unmarshal([]byte(parts[1]), &fm); err == nil {
 			if compPath, ok := fm["computation"].(string); ok && strings.TrimSpace(compPath) != "" {
-				fullP := filepath.Join(baseDir, strings.TrimSpace(compPath))
-				if b, err := os.ReadFile(fullP); err == nil {
-					return string(b)
+				cleanRel := filepath.Clean(strings.TrimSpace(compPath))
+				// SEC-01 Path containment: reject absolute paths or path traversal sequences (..)
+				if !filepath.IsAbs(cleanRel) && !strings.HasPrefix(cleanRel, "..") && !strings.Contains(cleanRel, "../") {
+					fullP := filepath.Join(baseDir, cleanRel)
+					if b, err := os.ReadFile(fullP); err == nil {
+						return string(b)
+					}
 				}
 			}
 		}
