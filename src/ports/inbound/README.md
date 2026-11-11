@@ -23,16 +23,15 @@ Package `inbound` ([`services.go`](./services.go)) defines the primary driving (
 - **`[services.go:SemanticServicePort]`**
   - `AlignSemantics(ctx context.Context, manifest *domain.PackageManifest) ([]domain.SemanticFieldMapping, error)`: Computes semantic field mappings (`ValueLabel` -> `Concept` -> `SKOS`) across a package manifest.
   - `GenerateCaseExpression(ctx context.Context, mapping domain.SemanticFieldMapping, tablePrefix string) string`: Compiles a `SemanticFieldMapping` into a deterministic ANSI SQL `CASE ... END` projection.
-- **`[services.go:HarvesterServicePort]`**
-  - `DiscoverWellKnown(ctx context.Context, targetURL string) (*domain.WellKnownDiscovery, error)`: Probes `/.well-known/datamesh.json` capability metadata on a remote host.
-  - `HarvestCKAN(ctx context.Context, ckanBaseURL string, options map[string]interface{}) (*domain.CKANHarvestResult, error)`: Harvests packages from a CKAN Action API v3 portal.
-  - `ReconstructOKF(ctx context.Context, pkg *domain.CKANPackage) (*domain.PackageManifest, error)`: Reconstructs a canonical OKF `PackageManifest` from a raw `CKANPackage`.
+- **`[services.go:DiscoveryServicePort]`**
+  - `DiscoverWellKnown(ctx context.Context, targetURL string) (*domain.WellKnownDiscovery, error)`: Probes `/.well-known/datamesh.json` capability metadata on a remote host (RFC 8615).
 - **`[services.go:LineageServicePort]`**
   - `BuildGraph(ctx context.Context, searchDirs []string, catalogURL string) (*domain.LineageGraph, error)`: Builds the dataset provenance and derivation DAG across local directories and catalogs.
   - `GetLineage(ctx context.Context, datasetIDOrPath string, searchDirs []string, catalogURL string) (map[string]interface{}, error)`: Retrieves upstream/downstream lineage metadata for a specific dataset or path.
 - **`[services.go:InteroperabilityServicePort]`**
   - `Ingest(ctx context.Context, target string, authType string) (*domain.DataProduct, error)`: Ingests heterogeneous external metadata as-is into a canonical ODKF `DataProduct`.
-  - `ExportCKANDataPackage(ctx context.Context, dp *domain.DataProduct) ([]byte, error)`: Exports an ODKF `DataProduct` to CKAN/Frictionless `datapackage.json` format while preserving ODKF extension keys.
+  - `ExportFrictionlessDataPackage(ctx context.Context, dp *domain.DataProduct) ([]byte, error)`: Exports an ODKF `DataProduct` to Frictionless `datapackage.json` format while preserving ODKF extension keys.
+  - `ExportCKANDataPackage(ctx context.Context, dp *domain.DataProduct) ([]byte, error)`: Backwards-compatible alias for exporting to Frictionless `datapackage.json`.
   - `ExportDCAT(ctx context.Context, dp *domain.DataProduct) ([]byte, error)`: Exports an ODKF `DataProduct` to W3C DCAT JSON-LD format.
 
 ## Invariants

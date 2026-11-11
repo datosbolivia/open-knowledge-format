@@ -17,7 +17,7 @@ flowchart TD
         POL["Governance & k-Anonymity Policy (policy.go)"]
         CRY["Ed25519, SHA-256 & GitHub DID (crypto.go)"]
         LIN["Lineage DAG & PROV-O (lineage.go)"]
-        CKAN["CKAN & DCAT-AP Bridges (ckan.go, ckan_manifest.go, knowledge_export.go)"]
+        EXP["Standard Exporters (knowledge_export.go)"]
         CAT["Catalog & .well-known Discovery (catalog.go, wellknown.go, config.go)"]
         SQL["Query Models & Fallback SQL Parser (query.go, sqlsubset.go)"]
     end
@@ -57,10 +57,9 @@ flowchart TD
 - **`[crypto.go:ParseOpenSSHEd25519PublicKey]`**: Parses RFC 4253 `ssh-ed25519` wire-format public keys into raw bytes and lowercase hex.
 - **`[crypto.go:VerifyGitHubDID]`** & **`[crypto.go:MatchesGitHubSSHKey]`**: Validates `did:github:<username>` syntax and matches `claimedPubKey` against the user's `ssh-ed25519` keys.
 
-### 6. Lineage Graph, Interoperability & Fallback SQL ([`lineage.go`](./lineage.go), [`ckan.go`](./ckan.go), [`ckan_manifest.go`](./ckan_manifest.go), [`knowledge_export.go`](./knowledge_export.go), [`sqlsubset.go`](./sqlsubset.go), [`catalog.go`](./catalog.go), [`wellknown.go`](./wellknown.go), [`config.go`](./config.go), [`query.go`](./query.go))
+### 6. Lineage Graph, Standards Interoperability & Fallback SQL ([`lineage.go`](./lineage.go), [`knowledge_export.go`](./knowledge_export.go), [`sqlsubset.go`](./sqlsubset.go), [`catalog.go`](./catalog.go), [`wellknown.go`](./wellknown.go), [`config.go`](./config.go), [`query.go`](./query.go))
 - **`[lineage.go:NewLineageGraph]`**, **`[lineage.go:LineageGraph.Upstream]`**, **`[lineage.go:LineageGraph.Downstream]`**, **`[lineage.go:LineageGraph.ToMermaid]`**, **`[lineage.go:LineageGraph.ToASCII]`** (`[lineage.go:LineageInfo]`, `[lineage.go:LineageSource]`, `[lineage.go:LineageTransformation]`, `[lineage.go:LineageNode]`, `[lineage.go:LineageEdge]`): Breadth-first DAG traversal and visualization of dataset provenance.
-- **`[ckan_manifest.go:ReconstructManifestFromCKAN]`** (`[ckan.go:CKANPackage]`, `[ckan.go:CKANResource]`, `[ckan.go:CKANDataStoreField]`, `[ckan.go:CKANExtra]`, `[ckan.go:CKANOrganization]`, `[ckan.go:CKANGroup]`, `[ckan.go:CKANTag]`, `[ckan.go:CKANHarvestResult]`): Elevates CKAN Action API v3 packages into ODKF `PackageManifest` objects.
-- **`[knowledge_export.go:DataProduct.ToCKANDataPackageJSON]`** & **`[knowledge_export.go:DataProduct.ToDCATJSON]`** (`[knowledge_export.go:CKANDataPackageJSON]`, `[knowledge_export.go:FrictionlessResource]`, `[knowledge_export.go:DCATDatasetJSON]`, `[knowledge_export.go:DCATDistribution]`, `[knowledge_export.go:DCATContext]`, `[knowledge_export.go:CKANDataPackageProfile]`): Serializes a `DataProduct` into Frictionless DataPackage JSON or W3C DCAT-AP JSON-LD (`https://www.w3.org/ns/dcat.jsonld`).
+- **`[knowledge_export.go:DataProduct.ToCKANDataPackageJSON]`** & **`[knowledge_export.go:DataProduct.ToDCATJSON]`** (`[knowledge_export.go:CKANDataPackageJSON]`, `[knowledge_export.go:FrictionlessResource]`, `[knowledge_export.go:DCATDatasetJSON]`, `[knowledge_export.go:DCATDistribution]`, `[knowledge_export.go:DCATContext]`, `[knowledge_export.go:CKANDataPackageProfile]`): Serializes a `DataProduct` into Frictionless DataPackage JSON or W3C DCAT-AP JSON-LD (`https://www.w3.org/ns/dcat.jsonld`). External platform harvesters (CKAN) are handled as external services rather than core domain entities.
 - **`[sqlsubset.go:ParseSimpleSelect]`** (`[sqlsubset.go:SimpleSelect]`): Conservative pure-Go SQL parser for single-table projections, equality `WHERE` filters, and `LIMIT` clauses.
 - **`[catalog.go:Catalog.FindByKeyword]`** & **`[catalog.go:Catalog.FindByDomain]`** (`[catalog.go:CatalogEntry]`): Diacritic-insensitive multi-token search across catalog entries (`[wellknown.go:WellKnownDiscovery]`, `[wellknown.go:CatalogMetadata]`, `[wellknown.go:AuthConfiguration]`, `[wellknown.go:KeycloakAuth]`, `[wellknown.go:OAuth2Auth]`, `[wellknown.go:APIKeyAuth]`).
 - **`[config.go:NewDefaultConfig]`**, **`[config.go:Config.Validate]`**, **`[config.go:Config.Sanitized]`**, **`[config.go:Config.GetAdapterValue]`** (`[config.go:BaseConfig]`, `[config.go:ErrInvalidCatalogURL]`, `[config.go:ErrInvalidTimeout]`): Initializes default configuration (`https://datosbolivia.github.io/llms.txt`), validates invariants, and masks sensitive adapter keys with `"***"`.

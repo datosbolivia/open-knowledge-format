@@ -41,11 +41,9 @@ type SemanticServicePort interface {
 	GenerateCaseExpression(ctx context.Context, mapping domain.SemanticFieldMapping, tablePrefix string) string
 }
 
-// HarvesterServicePort defines inbound operations for well-known discovery and CKAN catalog harvesting.
-type HarvesterServicePort interface {
+// DiscoveryServicePort defines inbound operations for well-known catalog discovery (RFC 8615).
+type DiscoveryServicePort interface {
 	DiscoverWellKnown(ctx context.Context, targetURL string) (*domain.WellKnownDiscovery, error)
-	HarvestCKAN(ctx context.Context, ckanBaseURL string, options map[string]interface{}) (*domain.CKANHarvestResult, error)
-	ReconstructOKF(ctx context.Context, pkg *domain.CKANPackage) (*domain.PackageManifest, error)
 }
 
 // LineageServicePort defines inbound operations for dataset provenance and derivation DAG analysis.
@@ -55,10 +53,11 @@ type LineageServicePort interface {
 }
 
 // InteroperabilityServicePort defines inbound operations for as-is ingestion of heterogeneous
-// metadata into canonical ODKF DataProducts (ADR 0013) and export from ODKF to external
-// standards (CKAN/Frictionless DataPackage, W3C DCAT).
+// metadata into canonical ODKF DataProducts (ADR 0013) and export from ODKF to open
+// standards (Frictionless DataPackage, W3C DCAT).
 type InteroperabilityServicePort interface {
 	Ingest(ctx context.Context, target string, authType string) (*domain.DataProduct, error)
+	ExportFrictionlessDataPackage(ctx context.Context, dp *domain.DataProduct) ([]byte, error)
 	ExportCKANDataPackage(ctx context.Context, dp *domain.DataProduct) ([]byte, error)
 	ExportDCAT(ctx context.Context, dp *domain.DataProduct) ([]byte, error)
 }

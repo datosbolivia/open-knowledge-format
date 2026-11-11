@@ -2,13 +2,13 @@
 
 ## Overview & Role
 
-Application-layer use cases for the Open Knowledge Format (OKF/ODKF v0.2) Go core engine (`github.com/datosbolivia/open-knowledge-format/src/usecases`). This package implements the hexagonal inbound service ports ([`src/ports/inbound`](../ports/inbound/README.md)), orchestrating domain entities ([`src/domain`](../domain/README.md)), outbound storage/catalog/query/CKAN adapters ([`src/ports/outbound`](../ports/outbound/README.md)), and local bundle lifecycle workflows (`init`, `add`, `link`, `index`, `audit`, `graph`, `run`, `diff`, `attest`, `validate`, `visualize`).
+Application-layer use cases for the Open Knowledge Format (OKF/ODKF v0.2) Go core engine (`github.com/datosbolivia/open-knowledge-format/src/usecases`). This package implements the hexagonal inbound service ports ([`src/ports/inbound`](../ports/inbound/README.md)), orchestrating domain entities ([`src/domain`](../domain/README.md)), outbound storage/catalog/query adapters ([`src/ports/outbound`](../ports/outbound/README.md)), and local bundle lifecycle workflows (`init`, `add`, `link`, `index`, `audit`, `graph`, `run`, `diff`, `attest`, `validate`, `visualize`). External platform harvesters (like CKAN) are treated as decoupled service connectors.
 
 ```mermaid
 flowchart LR
   CLI["Inbound Adapters (CLI / C-Shared / WASM)"] --> UC["usecases (Application Layer)"]
   UC --> DOM["domain (Pure Entities, Triads, Rules)"]
-  UC --> OUT["ports/outbound (Storage, Resolvers, QueryEngine, CKAN)"]
+  UC --> OUT["ports/outbound (Storage, Resolvers, QueryEngine)"]
   UC --> ASSETS["usecases/assets (Embedded Cytoscape.js Viewer)"]
 ```
 
@@ -51,12 +51,11 @@ flowchart LR
 | `[query_dataproduct.go:QueryDataProductUseCase]` / `[query_dataproduct.go:NewQueryDataProductUseCase]` | `ExecuteSQL(ctx, sqlQuery)` / `ExecuteSQLWithOptions(ctx, sqlQuery, opts)` / `Query(ctx, req)` | Implements `inbound.QueryServicePort`. Extracts canonical triads from SQL (`domain.ExtractTriadsFromSQL`), resolves physical paths via `outbound.TriadResolverPort`, transparently extracts `#fragment` subfiles from `.zip` archives in memory, and delegates to `outbound.QueryEnginePort`. |
 | `[lineage_usecase.go:LineageUseCase]` / `[lineage_usecase.go:NewLineageUseCase]` | `ExtractFromFile(filePath)` / `BuildGraph(ctx, searchDirs, catalogURL)` / `GetLineage(ctx, target, searchDirs, catalogURL)` | Implements `inbound.LineageServicePort`. Parses lineage metadata from `datapackage.{yaml,yml,json}` and `index.md`, builds a `domain.LineageGraph` DAG, and renders upstream/downstream lineage plus Mermaid and ASCII views. |
 
-### 4. Interoperability, Harvesting, Publishing & Semantic Alignment ([`ingest_as_is.go`](./ingest_as_is.go), [`harvest_ckan_usecase.go`](./harvest_ckan_usecase.go), [`publish_and_semantic_usecase.go`](./publish_and_semantic_usecase.go))
+### 4. Interoperability, Discovery, Publishing & Semantic Alignment ([`ingest_as_is.go`](./ingest_as_is.go), [`publish_and_semantic_usecase.go`](./publish_and_semantic_usecase.go))
 
 | Symbol (`[file:symbol]`) | Signature | Responsibility |
 | :--- | :--- | :--- |
-| `[ingest_as_is.go:AsIsIngestUseCase]` / `[ingest_as_is.go:NewAsIsIngestUseCase]` | `Ingest(ctx, target, authType)` / `ExportCKANDataPackage(ctx, dp)` / `ExportDCAT(ctx, dp)` | Implements `inbound.InteroperabilityServicePort`. Probes `/.well-known/datamesh.json`, `UnifiedMetadataReaderPort.ReadNode`, and CKAN `GetPackage` -> `domain.ReconstructManifestFromCKAN`. |
-| `[harvest_ckan_usecase.go:HarvestCKANUseCase]` / `[harvest_ckan_usecase.go:NewHarvestCKANUseCase]` | `DiscoverWellKnown(ctx, targetURL)` / `HarvestCKAN(ctx, ckanBaseURL, options)` / `ReconstructOKF(ctx, pkg)` | Implements `inbound.HarvesterServicePort`. Searches CKAN packages with pagination/auth and reconstructs OKF v0.2 `PackageManifest` structs. |
+| `[ingest_as_is.go:AsIsIngestUseCase]` / `[ingest_as_is.go:NewAsIsIngestUseCase]` | `Ingest(ctx, target, authType)` / `DiscoverWellKnown(ctx, targetURL)` / `ExportFrictionlessDataPackage(ctx, dp)` / `ExportDCAT(ctx, dp)` | Implements `inbound.InteroperabilityServicePort` and `inbound.DiscoveryServicePort`. Probes `/.well-known/datamesh.json` (RFC 8615) and `UnifiedMetadataReaderPort.ReadNode`. Directs proprietary platforms (CKAN) to service connectors. |
 | `[publish_and_semantic_usecase.go:PublishDatasetUseCase]` / `[publish_and_semantic_usecase.go:NewPublishDatasetUseCase]` / `[publish_and_semantic_usecase.go:PublishDatasetUseCase.RegisterPublisher]` | `Publish(ctx, datasetPath, targets, options)` | Implements `inbound.PublicationServicePort`. Reads package metadata via `UnifiedMetadataReaderPort` and dispatches publication to registered `outbound.PublisherTargetPort` adapters. |
 | `[publish_and_semantic_usecase.go:SemanticAlignmentUseCase]` / `[publish_and_semantic_usecase.go:NewSemanticAlignmentUseCase]` | `ResolveValueLabelToConcept(...)` / `ResolveConceptCorrespondences(...)` / `GenerateCaseExpression(mapping, tablePrefix)` / `GenerateCrossDatasetJoinSQL(...)` | Resolves `ValueLabel -> Concept -> SKOS` correspondences (`direct_concept_ref` -> `skos:exactMatch` -> `skos_anchor` -> `skos:closeMatch`) and generates deterministic ANSI SQL `CASE` and `JOIN` expressions. |
 

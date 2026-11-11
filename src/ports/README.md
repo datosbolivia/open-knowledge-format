@@ -8,13 +8,13 @@
 
 | Directory | Package | Role & Scope | Contract Document |
 | :--- | :--- | :--- | :--- |
-| [`inbound/`](./inbound/README.md) | `inbound` | Primary (driving) service ports consumed by CLI, C-Shared FFI, and WASM adapters (`CatalogServicePort`, `DataProductServicePort`, `QueryServicePort`, `ConfigServicePort`, `PublicationServicePort`, `SemanticServicePort`, `HarvesterServicePort`, `LineageServicePort`, `InteroperabilityServicePort`). | [`./inbound/README.md`](./inbound/README.md) |
-| [`outbound/`](./outbound/README.md) | `outbound` | Secondary (driven) infrastructure ports implemented by outbound adapters for config, storage, manifest parsing, catalog/node/triad resolution, CKAN harvesting, dataset publication, and SQL/tabular query engines. | [`./outbound/README.md`](./outbound/README.md) |
+| [`inbound/`](./inbound/README.md) | `inbound` | Primary (driving) service ports consumed by CLI, C-Shared FFI, and WASM adapters (`CatalogServicePort`, `DataProductServicePort`, `QueryServicePort`, `ConfigServicePort`, `PublicationServicePort`, `SemanticServicePort`, `DiscoveryServicePort`, `LineageServicePort`, `InteroperabilityServicePort`). | [`./inbound/README.md`](./inbound/README.md) |
+| [`outbound/`](./outbound/README.md) | `outbound` | Secondary (driven) infrastructure ports implemented by outbound adapters for config, storage, manifest parsing, catalog/node/triad resolution, dataset publication, and SQL/tabular query engines. | [`./outbound/README.md`](./outbound/README.md) |
 
 ## Interface
 
-- **Inbound Service Ports ([`./inbound/README.md`](./inbound/README.md))**: `[services.go:CatalogServicePort]`, `[services.go:DataProductServicePort]`, `[services.go:QueryServicePort]`, `[services.go:ConfigServicePort]`, `[services.go:PublicationServicePort]`, `[services.go:SemanticServicePort]`, `[services.go:HarvesterServicePort]`, `[services.go:LineageServicePort]`, `[services.go:InteroperabilityServicePort]`.
-- **Outbound Infrastructure Ports ([`./outbound/README.md`](./outbound/README.md))**: `[config.go:ConfigLoaderPort]`, `[harvester.go:AuthProviderPort]`, `[harvester.go:WellKnownResolverPort]`, `[harvester.go:CKANClientPort]`, `[package_reader.go:ManifestParserPort]`, `[package_reader.go:UnifiedMetadataReaderPort]`, `[publisher.go:PublisherTargetPort]`, `[query.go:QueryEnginePort]`, `[query.go:QueryEngineRegistryPort]`, `[resolvers.go:CatalogResolverPort]`, `[resolvers.go:DataProductResolverPort]`, `[triad_resolver.go:TriadResolverPort]`, `[storage.go:StoragePort]`.
+- **Inbound Service Ports ([`./inbound/README.md`](./inbound/README.md))**: `[services.go:CatalogServicePort]`, `[services.go:DataProductServicePort]`, `[services.go:QueryServicePort]`, `[services.go:ConfigServicePort]`, `[services.go:PublicationServicePort]`, `[services.go:SemanticServicePort]`, `[services.go:DiscoveryServicePort]`, `[services.go:LineageServicePort]`, `[services.go:InteroperabilityServicePort]`.
+- **Outbound Infrastructure Ports ([`./outbound/README.md`](./outbound/README.md))**: `[config.go:ConfigLoaderPort]`, `[harvester.go:AuthProviderPort]`, `[harvester.go:WellKnownResolverPort]`, `[package_reader.go:ManifestParserPort]`, `[package_reader.go:UnifiedMetadataReaderPort]`, `[publisher.go:PublisherTargetPort]`, `[query.go:QueryEnginePort]`, `[query.go:QueryEngineRegistryPort]`, `[resolvers.go:CatalogResolverPort]`, `[resolvers.go:DataProductResolverPort]`, `[triad_resolver.go:TriadResolverPort]`, `[storage.go:StoragePort]`.
 
 ## Invariants
 

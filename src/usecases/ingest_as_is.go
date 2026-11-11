@@ -13,24 +13,23 @@ import (
 
 // AsIsIngestUseCase orchestrates the dual discovery path defined in ADR 0013:
 // conformant well-known first, then an as-is heuristic probe (llms.txt,
-// datapackage.json/yaml/yml, index.md OKF, CKAN package_show), always converting
+// datapackage.json/yaml/yml, index.md OKF), always converting
 // the source into a canonical ODKF DataProduct; it also exposes ODKF export
-// converters toward CKAN/Frictionless DataPackage and W3C DCAT.
+// converters toward Frictionless DataPackage and W3C DCAT.
 type AsIsIngestUseCase struct {
 	wellKnown     outbound.WellKnownResolverPort
 	reader        outbound.UnifiedMetadataReaderPort
-	ckanClient    outbound.CKANClientPort
 	authProviders map[string]outbound.AuthProviderPort
 }
 
 var _ inbound.InteroperabilityServicePort = (*AsIsIngestUseCase)(nil)
+var _ inbound.DiscoveryServicePort = (*AsIsIngestUseCase)(nil)
 
 // NewAsIsIngestUseCase constructs AsIsIngestUseCase; all ports are optional so the
 // probe chain degrades gracefully when a port is not configured.
 func NewAsIsIngestUseCase(
 	wellKnown outbound.WellKnownResolverPort,
 	reader outbound.UnifiedMetadataReaderPort,
-	ckanClient outbound.CKANClientPort,
 	authProviders map[string]outbound.AuthProviderPort,
 ) *AsIsIngestUseCase {
 	if authProviders == nil {
@@ -39,9 +38,16 @@ func NewAsIsIngestUseCase(
 	return &AsIsIngestUseCase{
 		wellKnown:     wellKnown,
 		reader:        reader,
-		ckanClient:    ckanClient,
 		authProviders: authProviders,
 	}
+}
+
+// DiscoverWellKnown probes for /.well-known/datamesh.json to inspect required auth and catalog specs.
+func (uc *AsIsIngestUseCase) DiscoverWellKnown(ctx context.Context, targetURL string) (*domain.WellKnownDiscovery, error) {
+	if uc.wellKnown == nil {
+		return nil, errors.New("well-known resolver port is not configured")
+	}
+	return uc.wellKnown.FetchWellKnown(ctx, targetURL)
 }
 
 // Ingest resolves any target endpoint into a canonical ODKF DataProduct (ADR 0013).
@@ -72,14 +78,6 @@ func (uc *AsIsIngestUseCase) Ingest(ctx context.Context, target, authType string
 		}
 	}
 
-	if uc.ckanClient != nil {
-		if dp, err := uc.ingestCKAN(ctx, target, authType); err == nil {
-			return dp, nil
-		} else {
-			errs = append(errs, fmt.Sprintf("ckan: %v", err))
-		}
-	}
-
 	if len(errs) == 0 {
 		return nil, errors.New("no ingestion port is configured for target " + target)
 	}
@@ -95,47 +93,23 @@ func (uc *AsIsIngestUseCase) ingestConformant(ctx context.Context, target string
 		}
 		return uc.reader.ReadNode(ctx, target)
 	case "ckan":
-		base := wk.Catalog.APIEndpoint
-		if base == "" {
-			base = target
-		}
-		return uc.ingestCKAN(ctx, base, authType)
+		return nil, errors.New("ckan is an external software service; use a CKAN service connector or script (connectors/ckan/) rather than core ingestion")
 	default:
 		return nil, fmt.Errorf("unsupported conformant catalog type %q", wk.Catalog.Type)
 	}
 }
 
-// ingestCKAN reads a raw CKAN dataset as-is and reconstructs the ODKF DataProduct
-// reusing the CKAN anticorruption layer and the domain reconstruction (CU-13 / ADR 0010).
-func (uc *AsIsIngestUseCase) ingestCKAN(ctx context.Context, ckanBaseURL, authType string) (*domain.DataProduct, error) {
-	if uc.ckanClient == nil {
-		return nil, errors.New("CKAN client port is not configured")
-	}
-
-	id := ckanPackageID(ckanBaseURL)
-	if id == "" {
-		return nil, errors.New("target must select a CKAN dataset (package id or /dataset/<id> URL)")
-	}
-
-	auth := uc.authProviders[authType]
-	pkg, err := uc.ckanClient.GetPackage(ctx, ckanBaseURL, id, auth)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CKAN package %q as-is: %w", id, err)
-	}
-
-	manifest, err := domain.ReconstructManifestFromCKAN(pkg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reconstruct ODKF from CKAN package %q: %w", id, err)
-	}
-	return dataProductFromManifest(manifest)
-}
-
-// ExportCKANDataPackage serializes an ODKF DataProduct as CKAN/Frictionless datapackage JSON.
-func (uc *AsIsIngestUseCase) ExportCKANDataPackage(ctx context.Context, dp *domain.DataProduct) ([]byte, error) {
+// ExportFrictionlessDataPackage serializes an ODKF DataProduct as standard Frictionless datapackage JSON.
+func (uc *AsIsIngestUseCase) ExportFrictionlessDataPackage(ctx context.Context, dp *domain.DataProduct) ([]byte, error) {
 	if dp == nil {
 		return nil, errors.New("data product is nil; cannot export")
 	}
 	return dp.ToCKANDataPackageJSON()
+}
+
+// ExportCKANDataPackage serializes an ODKF DataProduct as CKAN/Frictionless datapackage JSON.
+func (uc *AsIsIngestUseCase) ExportCKANDataPackage(ctx context.Context, dp *domain.DataProduct) ([]byte, error) {
+	return uc.ExportFrictionlessDataPackage(ctx, dp)
 }
 
 // ExportDCAT serializes an ODKF DataProduct as a W3C DCAT-AP dataset JSON-LD document.
@@ -144,21 +118,6 @@ func (uc *AsIsIngestUseCase) ExportDCAT(ctx context.Context, dp *domain.DataProd
 		return nil, errors.New("data product is nil; cannot export")
 	}
 	return dp.ToDCATJSON()
-}
-
-// ckanPackageID extracts the dataset id from a CKAN catalog or package URL (the last
-// non-empty path segment, ignoring known action suffixes that denote catalog hosts).
-func ckanPackageID(target string) string {
-	s := strings.TrimRight(strings.TrimSpace(target), "/")
-	if i := strings.LastIndex(s, "/"); i >= 0 {
-		s = s[i+1:]
-	}
-	switch s {
-	case "api", "action", "package_show", "package_search", "status_show",
-		"datastore_search", "datastore_search_sql", "dataset", "group", "organization":
-		return ""
-	}
-	return s
 }
 
 // dataProductFromManifest elevates a normalized PackageManifest (información, ADR 0014

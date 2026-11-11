@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/datosbolivia/open-knowledge-format/src/domain"
@@ -37,27 +38,6 @@ func (f *fakeReader) ReadCatalog(ctx context.Context, uriOrPath string) (*domain
 	return nil, errors.New("not implemented in test fake")
 }
 
-// fakeCKANClient simulates the CKAN Action API for as-is ingestion.
-type fakeCKANClient struct {
-	pkg  *domain.CKANPackage
-	err  error
-	seen map[string]string
-}
-
-func (f *fakeCKANClient) SearchPackages(ctx context.Context, baseURL, query string, start, rows int, auth outbound.AuthProviderPort) ([]domain.CKANPackage, int, error) {
-	return nil, 0, errors.New("not implemented in test fake")
-}
-func (f *fakeCKANClient) GetPackage(ctx context.Context, baseURL, packageID string, auth outbound.AuthProviderPort) (*domain.CKANPackage, error) {
-	if f.seen != nil {
-		f.seen["base"] = baseURL
-		f.seen["id"] = packageID
-	}
-	return f.pkg, f.err
-}
-func (f *fakeCKANClient) GetDataStoreSchema(ctx context.Context, baseURL, resourceID string, auth outbound.AuthProviderPort) ([]domain.CKANDataStoreField, error) {
-	return nil, errors.New("not implemented in test fake")
-}
-
 func dummyDataProduct() *domain.DataProduct {
 	dp, _ := domain.NewDataProduct(
 		"air_quality",
@@ -77,7 +57,7 @@ func TestAsIsIngestUseCase_ConformantOKF(t *testing.T) {
 	uc := NewAsIsIngestUseCase(
 		&fakeWellKnownResolver{wk: &domain.WellKnownDiscovery{Catalog: domain.CatalogMetadata{Type: "okf"}}},
 		&fakeReader{dp: dp},
-		nil, nil,
+		nil,
 	)
 	got, err := uc.Ingest(context.Background(), "https://datos.bo", "none")
 	if err != nil {
@@ -94,7 +74,7 @@ func TestAsIsIngestUseCase_FallbackToRawReader(t *testing.T) {
 	uc := NewAsIsIngestUseCase(
 		&fakeWellKnownResolver{wk: nil, err: errors.New("404")},
 		&fakeReader{dp: dp},
-		nil, nil,
+		nil,
 	)
 	got, err := uc.Ingest(context.Background(), "https://datos.bo/nodo/index.md", "")
 	if err != nil {
@@ -105,62 +85,33 @@ func TestAsIsIngestUseCase_FallbackToRawReader(t *testing.T) {
 	}
 }
 
-func TestAsIsIngestUseCase_RawCKANReconstruction(t *testing.T) {
-	client := &fakeCKANClient{
-		pkg: &domain.CKANPackage{
-			ID:      "abc-123",
-			Name:    "calidad-aire",
-			Title:   "Calidad del aire de Bolivia",
-			Notes:   "Resumen del dataset.",
-			Version: "1.2.0",
-			Resources: []domain.CKANResource{
-				{ID: "res-1", Name: "pm25.csv", URL: "https://datos.bo/storage/pm25.csv", Format: "CSV", Size: 999},
-			},
-			Tags: []domain.CKANTag{{Name: "aire"}},
-		},
-		seen: map[string]string{},
-	}
+func TestAsIsIngestUseCase_CKANAsServiceRejection(t *testing.T) {
 	uc := NewAsIsIngestUseCase(
 		&fakeWellKnownResolver{wk: &domain.WellKnownDiscovery{Catalog: domain.CatalogMetadata{
 			Type:        "ckan",
 			APIEndpoint: "https://datos.bo/api/3/action",
 		}}},
-		nil, client, nil,
+		nil, nil,
 	)
 
-	got, err := uc.Ingest(context.Background(), "https://datos.bo/dataset/calidad-aire", "none")
-	if err != nil {
-		t.Fatalf("Ingest error: %v", err)
+	_, err := uc.Ingest(context.Background(), "https://datos.bo/dataset/calidad-aire", "none")
+	if err == nil {
+		t.Fatal("expected error indicating CKAN should be accessed as service, got nil")
 	}
-	if got.ID != "calidad_aire" {
-		t.Fatalf("expected reporter ID calidad_aire, got %q", got.ID)
-	}
-	if len(got.Resources) != 1 || got.Resources[0].Format != "csv" {
-		t.Fatalf("resources not normalized to ODKF: %+v", got.Resources)
-	}
-	if client.seen["id"] != "calidad-aire" {
-		t.Fatalf("package id extracted incorrectly: %v", client.seen)
-	}
-}
-
-func TestAsIsIngestUseCase_CKANCatalogRootRejected(t *testing.T) {
-	client := &fakeCKANClient{err: errors.New("should not be called")}
-	uc := NewAsIsIngestUseCase(nil, nil, client, nil)
-
-	if _, err := uc.Ingest(context.Background(), "https://datos.bo/api/3/action/package_search", ""); err == nil {
-		t.Fatal("expected error when target selects the catalog root, not a dataset")
+	if !strings.Contains(err.Error(), "external software service") {
+		t.Fatalf("expected service hint in error, got: %v", err)
 	}
 }
 
 func TestAsIsIngestUseCase_ExportCKAN(t *testing.T) {
-	uc := NewAsIsIngestUseCase(nil, nil, nil, nil)
-	raw, err := uc.ExportCKANDataPackage(context.Background(), dummyDataProduct())
+	uc := NewAsIsIngestUseCase(nil, nil, nil)
+	raw, err := uc.ExportFrictionlessDataPackage(context.Background(), dummyDataProduct())
 	if err != nil {
-		t.Fatalf("ExportCKANDataPackage error: %v", err)
+		t.Fatalf("ExportFrictionlessDataPackage error: %v", err)
 	}
 	var out domain.CKANDataPackageJSON
 	if err := json.Unmarshal(raw, &out); err != nil {
-		t.Fatalf("invalid CKAN datapackage JSON: %v", err)
+		t.Fatalf("invalid Frictionless datapackage JSON: %v", err)
 	}
 	if out.Name != "compilaci_n_de_datos_de_calidad_del_aire_de_bolivia" {
 		t.Fatalf("unexpected datapackage name: %q", out.Name)
@@ -174,7 +125,7 @@ func TestAsIsIngestUseCase_ExportCKAN(t *testing.T) {
 }
 
 func TestAsIsIngestUseCase_ExportDCAT(t *testing.T) {
-	uc := NewAsIsIngestUseCase(nil, nil, nil, nil)
+	uc := NewAsIsIngestUseCase(nil, nil, nil)
 	raw, err := uc.ExportDCAT(context.Background(), dummyDataProduct())
 	if err != nil {
 		t.Fatalf("ExportDCAT error: %v", err)

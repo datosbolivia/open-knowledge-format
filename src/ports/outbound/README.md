@@ -2,7 +2,7 @@
 
 ## Overview & Role
 
-Package `outbound` defines the driven (secondary/outbound) infrastructure ports for the Open Knowledge Format (OKF / ODKF v0.2) hexagonal architecture ([`SPEC.md`](../../../SPEC.md) §16.1–16.2). Application use cases ([`src/usecases`](../../usecases/README.md)) depend on these interfaces, while concrete outbound adapters ([`src/adapters/outbound`](../../adapters/outbound/README.md)) implement them for configuration loading, local/remote storage, manifest parsing, catalog/node resolution, CKAN harvesting, publishing, and tabular/SQL query execution.
+Package `outbound` defines the driven (secondary/outbound) infrastructure ports for the Open Knowledge Format (OKF / ODKF v0.2) hexagonal architecture ([`SPEC.md`](../../../SPEC.md) §16.1–16.2). Application use cases ([`src/usecases`](../../usecases/README.md)) depend on these interfaces, while concrete outbound adapters ([`src/adapters/outbound`](../../adapters/outbound/README.md)) implement them for configuration loading, local/remote storage, manifest parsing, catalog/node resolution, publishing, and tabular/SQL query execution. Non-standard platforms (such as CKAN) are handled as external services rather than core ports.
 
 ## Interface
 
@@ -10,16 +10,12 @@ Package `outbound` defines the driven (secondary/outbound) infrastructure ports 
 - **`[config.go:ConfigLoaderPort]`**
   - `Load(explicitFilePath string) (domain.Config, error)`: Loads runtime configuration applying precedence: Environment Variables > Config File (`datamesh.json`/`yaml`/`yml`) > Default values.
 
-### Harvesting & Authentication ([`harvester.go`](./harvester.go))
+### Discovery & Authentication ([`harvester.go`](./harvester.go))
 - **`[harvester.go:AuthProviderPort]`**
   - `GetAuthHeaders(ctx context.Context) (map[string]string, error)`: Produces HTTP authentication headers for outbound requests.
   - `GetAuthType() string`: Returns the authentication scheme identifier (`none`, `api_key`, `keycloak`, `oauth2`).
 - **`[harvester.go:WellKnownResolverPort]`**
   - `FetchWellKnown(ctx context.Context, targetURL string) (*domain.WellKnownDiscovery, error)`: Fetches sovereign capability discovery metadata from a target URL.
-- **`[harvester.go:CKANClientPort]`**
-  - `SearchPackages(ctx context.Context, baseURL string, query string, start, rows int, auth AuthProviderPort) ([]domain.CKANPackage, int, error)`: Searches datasets via CKAN Action API v3 (`package_search`).
-  - `GetPackage(ctx context.Context, baseURL, packageID string, auth AuthProviderPort) (*domain.CKANPackage, error)`: Fetches a single CKAN package descriptor (`package_show`).
-  - `GetDataStoreSchema(ctx context.Context, baseURL, resourceID string, auth AuthProviderPort) ([]domain.CKANDataStoreField, error)`: Retrieves column schema definitions from the CKAN DataStore API.
 
 ### Package & Manifest Readers ([`package_reader.go`](./package_reader.go))
 - **`[package_reader.go:ManifestParserPort]`**

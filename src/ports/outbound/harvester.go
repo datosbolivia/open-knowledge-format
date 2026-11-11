@@ -16,10 +16,3 @@ type AuthProviderPort interface {
 type WellKnownResolverPort interface {
 	FetchWellKnown(ctx context.Context, targetURL string) (*domain.WellKnownDiscovery, error)
 }
-
-// CKANClientPort defines outbound operations for interacting with CKAN Action API v3.
-type CKANClientPort interface {
-	SearchPackages(ctx context.Context, baseURL string, query string, start, rows int, auth AuthProviderPort) ([]domain.CKANPackage, int, error)
-	GetPackage(ctx context.Context, baseURL, packageID string, auth AuthProviderPort) (*domain.CKANPackage, error)
-	GetDataStoreSchema(ctx context.Context, baseURL, resourceID string, auth AuthProviderPort) ([]domain.CKANDataStoreField, error)
-}
