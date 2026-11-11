@@ -2,7 +2,7 @@
 
 ## Overview & Architectural Role
 
-`src` is the Hexagonal Architecture / Domain-Driven Design (DDD) Go module root ([`go.mod`](./go.mod): `module github.com/datosbolivia/open-knowledge-format/src`, Go `1.22`) for the Open Knowledge Format (OKF / ODKF v0.2) specification engine and DataMesh runtime (`v0.2.2-rc.2`).
+`src` is the Hexagonal Architecture / Domain-Driven Design (DDD) Go module root ([`go.mod`](./go.mod): `module github.com/datosbolivia/open-knowledge-format/src`, Go `1.22`) for the Open Knowledge Format (OKF / ODKF v0.2) specification engine and DataMesh runtime (`v0.3.0-dev.1`).
 
 ```mermaid
 flowchart TD

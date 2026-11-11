@@ -10,7 +10,7 @@ The `src/cmd` directory is an Intermediate Blueprint (Hay) housing standalone ex
 
 | Directory | Binary / Package | Role & Contract Summary |
 | :--- | :--- | :--- |
-| [`okf/`](./okf/README.md) | `okf` (`package main`) | Standalone OKF/ODKF v0.2 Engine & CLI (`v0.2.2-rc.2`) supporting bundle initialization (`init`), authoring (`add`, `link`, `index`), governance (`validate`, `audit`, `diff`, `attest`), provenance tracking (`run`), and inspection (`graph`, `visualize`, `inspect`). |
+| [`okf/`](./okf/README.md) | `okf` (`package main`) | Standalone OKF/ODKF v0.2 Engine & CLI (`v0.3.0-dev.1`) supporting bundle initialization (`init`), authoring (`add`, `link`, `index`), governance (`validate`, `audit`, `diff`, `attest`), provenance tracking (`run`), and inspection (`graph`, `visualize`, `inspect`). |
 
 ## Interface
 

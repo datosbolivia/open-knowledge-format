@@ -39,7 +39,7 @@ func StartDataMeshServer(
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "ok",
 			"service": "datamesh-server",
-			"version": "0.2.2-rc.2",
+			"version": "0.3.0-dev.1",
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
 	})
@@ -53,7 +53,7 @@ func StartDataMeshServer(
 			origin = fmt.Sprintf("http://%s", r.Host)
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"schema_version": "0.2.2",
+			"schema_version": "0.3.0",
 			"catalog": map[string]interface{}{
 				"name":         "datamesh_sovereign_node",
 				"title":        "DataMesh Sovereign Node",

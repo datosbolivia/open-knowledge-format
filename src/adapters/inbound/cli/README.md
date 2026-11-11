@@ -8,7 +8,7 @@ Composition root for the `datamesh` CLI binary ([`main.go`](./main.go)), multi-p
 
 - **CLI Entrypoint (`[main.go:main]`)**: Dispatches subcommands `catalog [url]`, `search <keyword> [url]`, `get <uri_or_url>`, `sql "<SELECT ...>"`, `query <resource_uri> [--filter k=v] [--limit N]`, `validate <target>` (exits `2` when `!report.Valid`), `lineage [target] [--format|-f ascii|mermaid|json]`, `config`, and `serve [--port|-p 8000] [--host 127.0.0.1]`.
 - **HTTP & MCP Server (`[serve.go:ServerConfig]`, `[serve.go:StartDataMeshServer]`)**:
-  - `GET /health`: Service status and version (`0.2.2-rc.2`).
+  - `GET /health`: Service status and version (`0.3.0-dev.1`).
   - `GET /.well-known/datamesh.json`, `GET /.well-known/okf.json`: Sovereign node discovery metadata (`schema_version`, `catalog`, `auth`, `capabilities`).
   - `GET /proxy?url=<target_url>`: SSRF-guarded CORS proxy (`30s` timeout).
   - `GET /api/catalog?url=<optional_url>`: Federated or targeted catalog discovery.

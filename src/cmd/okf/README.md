@@ -2,7 +2,7 @@
 
 ## Purpose & Architectural Role
 
-Package `main` ([`main.go`](./main.go)) is the primary command-line entrypoint for the **Open Knowledge Format (OKF/ODKF v0.2) Engine & CLI** (`v0.2.2-rc.2`). It acts as an inbound CLI driving adapter that parses flexible POSIX/Go flags, dispatches subcommands to application use cases in [`src/usecases`](../../usecases/README.md), and formats human-readable or JSON reports to `stdout`/`stderr`.
+Package `main` ([`main.go`](./main.go)) is the primary command-line entrypoint for the **Open Knowledge Format (OKF/ODKF v0.2) Engine & CLI** (`v0.3.0-dev.1`). It acts as an inbound CLI driving adapter that parses flexible POSIX/Go flags, dispatches subcommands to application use cases in [`src/usecases`](../../usecases/README.md), and formats human-readable or JSON reports to `stdout`/`stderr`.
 
 ## Interface
 
@@ -26,7 +26,7 @@ okf <command> [arguments]
 | `attest` | `[main.go:runAttest]` | `-sql`, `-param` (`k=v,...`) | `<concept_file.md>` | `usecases.AttestComputation` | Verify an Attested Computation receipt or SQL query and emit a JSON `AttestationVerdict`. |
 | `visualize` | `[main.go:runVisualize]` | `-bundle`, `-out`, `-name` | `[bundle_dir]` | `usecases.NewVisualizeUseCase` | Generate a self-contained interactive HTML graph visualization (defaults to `<bundle>/viz.html`). |
 | `inspect` | `[main.go:runInspect]` | `-json` | `<target_path>` | `manifests.NewUnifiedMetadataReader`, `domain.ValidateConceptContent`, `usecases.NewValidateUseCase` | Display parsed frontmatter, SKOS ontology anchors, contracts, resources, and validation status. |
-| `version` | `[main.go:main]` | `--version`, `-v` | *(none)* | Constant `[main.go:version]` (`0.2.2-rc.2`) | Print CLI version and specification engine identifier. |
+| `version` | `[main.go:main]` | `--version`, `-v` | *(none)* | Constant `[main.go:version]` (`0.3.0-dev.1`) | Print CLI version and specification engine identifier. |
 | `help` | `[main.go:printUsage]` | `--help`, `-h` | *(none)* | Built-in usage printer | Print CLI usage summary to `stderr`. |
 
 ## Invariants
