@@ -430,7 +430,7 @@ func isBooleanFlag(arg string) bool {
 		return true
 	}
 	switch clean {
-	case "json", "strict", "v", "quiet", "h", "help":
+	case "json", "strict", "v", "quiet", "h", "help", "no-sync":
 		return true
 	default:
 		return false
@@ -459,11 +459,24 @@ func runRun(args []string) {
 	target := fs.String("target", "", "Target triad or dataset name (e.g. 'my_catalog:dataset:resource')")
 	jsonOutput := fs.Bool("json", false, "Output execution metrics as JSON")
 	bundleDir := fs.String("bundle", "", "Path to bundle root (default: auto-detected)")
+	reportPath := fs.String("report", "", "Optional path to write a Markdown ETL run report")
+	noSync := fs.Bool("no-sync", false, "Disable automatic safe datapackage.yaml distribution sync")
+	paramFlag := fs.String("param", "", "Comma-separated key=val parameters passed to script/notebook")
 	parseFlexibleFlags(fs, args)
 
 	if len(fs.Args()) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: missing script path to execute (e.g. 'okf run pipeline.py -target my_dataset').")
 		os.Exit(1)
+	}
+
+	paramsMap := make(map[string]string)
+	if strings.TrimSpace(*paramFlag) != "" {
+		for _, kv := range strings.Split(*paramFlag, ",") {
+			parts := strings.SplitN(strings.TrimSpace(kv), "=", 2)
+			if len(parts) == 2 {
+				paramsMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			}
+		}
 	}
 
 	scriptPath := fs.Args()[0]
@@ -474,6 +487,9 @@ func runRun(args []string) {
 		Target:     *target,
 		Args:       scriptArgs,
 		BundleDir:  *bundleDir,
+		ReportPath: *reportPath,
+		NoSync:     *noSync,
+		Params:     paramsMap,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error executing script: %v\n", err)
