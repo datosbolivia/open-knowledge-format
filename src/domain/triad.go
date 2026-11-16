@@ -12,7 +12,7 @@ var (
 	tableRefSQLRegex      = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(?:ONLY\s+)?(?:["']([^"']+)["']|([a-zA-Z0-9_\-\.:/@#]+))`)
 	quotedColonRegex      = regexp.MustCompile(`["']([^"':\s]+:[^"']+)["']`)
 	quotedSlashRegex      = regexp.MustCompile(`["']([^"'\s]+/[^"'\s]+)["']`)
-	quotedAtRegex         = regexp.MustCompile(`["']([a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+@[a-zA-Z0-9_\-\.#/]+)["']`)
+	quotedAtRegex         = regexp.MustCompile(`["']((?:"[^"]+"|[a-zA-Z0-9_\-\.]+)\.[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.#/]+)["']`)
 )
 
 var (
@@ -29,7 +29,7 @@ var (
 
 // NormalizeTriadSegment cleans and standardizes a triad component to lowercase with hyphens replacing whitespace.
 func NormalizeTriadSegment(s string) string {
-	trimmed := strings.TrimSpace(s)
+	trimmed := strings.Trim(strings.TrimSpace(s), "\"'")
 	if trimmed == "" {
 		return ""
 	}
@@ -95,9 +95,13 @@ func (t ResourceTriad) SovereignDNS() string {
 	cat := NormalizeTriadSegment(t.Catalog)
 	ds := NormalizeTriadSegment(t.Dataset)
 	res := NormalizeTriadSegment(t.Resource)
-	base := fmt.Sprintf("%s.%s", ds, res)
+	dsFmt := ds
+	if strings.Contains(ds, ".") {
+		dsFmt = fmt.Sprintf("%q", ds)
+	}
+	base := fmt.Sprintf("%s.%s", dsFmt, res)
 	if cat != "" {
-		base = fmt.Sprintf("%s.%s@%s", ds, res, cat)
+		base = fmt.Sprintf("%s.%s@%s", dsFmt, res, cat)
 	}
 	if strings.TrimSpace(t.Fragment) != "" {
 		return fmt.Sprintf("%s#%s", base, strings.TrimPrefix(strings.TrimSpace(t.Fragment), "#"))
@@ -105,12 +109,24 @@ func (t ResourceTriad) SovereignDNS() string {
 	return base
 }
 
+// unwrapOuterQuotes strips matching outer quote characters when the entire string is quoted,
+// preserving leading double-quotes used for reverse-DNS dot disambiguation ("censo.2024".votos@bolivia).
+func unwrapOuterQuotes(raw string) string {
+	s := strings.TrimSpace(raw)
+	if len(s) >= 2 && s[0] == s[len(s)-1] && (s[0] == '"' || s[0] == '\'' || s[0] == '`') {
+		if !(s[0] == '"' && strings.Contains(s, "\".") && strings.Contains(s, "@")) {
+			return strings.TrimSpace(s[1 : len(s)-1])
+		}
+	}
+	return s
+}
+
 // ParseTriad parses a string in 'catalogo:dataset:resource', 'dataset:resource',
 // 'okf://[catalogo/]dataset/resource', 'datamesh://[catalogo/]dataset/resource',
 // or Sovereign DNS '<dataset>.<resource>@<catalog>' format into a normalized ResourceTriad.
 // Also preserves optional RFC 3986 fragment identifiers ('#subpath') for composite archives.
 func ParseTriad(raw string) (*ResourceTriad, error) {
-	trimmed := strings.Trim(strings.TrimSpace(raw), "\"'`")
+	trimmed := unwrapOuterQuotes(raw)
 	if trimmed == "" {
 		return nil, ErrInvalidTriadFormat
 	}
@@ -177,19 +193,28 @@ func ParseTriad(raw string) (*ResourceTriad, error) {
 	if atIdx := strings.Index(trimmed, "@"); atIdx > 0 && !strings.Contains(trimmed, "://") && !strings.Contains(trimmed, "/") && !strings.Contains(trimmed, ":") {
 		left := strings.TrimSpace(trimmed[:atIdx])
 		catRaw := strings.TrimSpace(trimmed[atIdx+1:])
-		dotParts := strings.SplitN(left, ".", 2)
-		if len(dotParts) == 2 {
-			ds := NormalizeTriadSegment(dotParts[0])
-			res := NormalizeTriadSegment(dotParts[1])
-			cat := NormalizeTriadSegment(catRaw)
-			if ds != "" && res != "" && cat != "" {
-				return &ResourceTriad{
-					Catalog:  cat,
-					Dataset:  ds,
-					Resource: res,
-					Fragment: fragment,
-				}, nil
+		var ds, res string
+		if strings.HasPrefix(left, "\"") {
+			if closeIdx := strings.Index(left[1:], "\""); closeIdx > 0 && 1+closeIdx+1 < len(left) && left[1+closeIdx+1] == '.' {
+				ds = NormalizeTriadSegment(left[1 : 1+closeIdx])
+				res = NormalizeTriadSegment(left[1+closeIdx+2:])
 			}
+		}
+		if ds == "" && res == "" {
+			dotParts := strings.SplitN(left, ".", 2)
+			if len(dotParts) == 2 {
+				ds = NormalizeTriadSegment(dotParts[0])
+				res = NormalizeTriadSegment(dotParts[1])
+			}
+		}
+		cat := NormalizeTriadSegment(catRaw)
+		if ds != "" && res != "" && cat != "" {
+			return &ResourceTriad{
+				Catalog:  cat,
+				Dataset:  ds,
+				Resource: res,
+				Fragment: fragment,
+			}, nil
 		}
 		return nil, ErrInvalidTriadFormat
 	}

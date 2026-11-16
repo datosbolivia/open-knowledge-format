@@ -1,6 +1,6 @@
 # Open Knowledge Format (OKF)
 
-**Version 0.2**
+**Version 0.3**
 
 OKF is an open, human- and agent-friendly format for representing
 *knowledge*: the metadata, context, and curated insight that surrounds
@@ -13,10 +13,10 @@ no required tooling. If you can `cat` a file, you can read OKF; if you
 can `git clone` a repo, you can ship it.
 
 This document is self-contained: it specifies everything needed to
-produce and consume OKF v0.2. A summary of what changed from v0.1 is in
+produce and consume OKF v0.3. A summary of what changed from v0.1 is in
 §13.
 
-### Conformance & Keyword Definitions
+## Conformance & Keyword Definitions
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
@@ -151,14 +151,19 @@ A bundle MAY be distributed as:
 ### 3.1 Reserved filenames
 
 The following filenames have defined meaning at any level of the
-hierarchy and MUST NOT be used for concept documents:
+hierarchy and MUST NOT be used for generic concept documents:
 
 | Filename   | Purpose                          |
 |------------|----------------------------------|
 | `index.md` | Directory listing. See §8.       |
 | `log.md`   | Update history. See §9.          |
 
-All other `.md` files are concept documents.
+All other `.md` files are concept documents. In ODKF profile bundles
+(§14), a bundle-root `index.md` MAY act as a Root Concept Manifest only
+when it declares an explicit DCAT class (`type: dcat:Dataset`,
+`type: dcat:DataService`, or `type: dcat:CatalogRecord`); shorthand
+`type: dataset` or `type: service` inside reserved files emits a
+`PE3-RESERVED-FILE` warning (§14.5).
 
 Tags remain a first-class concept through the `tags` frontmatter field
 (§4.1). OKF does not specify a separate file format for aggregating
@@ -530,11 +535,14 @@ single actor convention:
   `process:finance-nightly`.
 
 Consumers that classify trust (§5.3) key off the `human:` prefix in Level 0
-for descriptive human provenance. In Level 1 and Level 2 profiles (§11, §14.5),
-elevated trust tiers (`verified`, `official`) MUST NOT rely on string prefixes
-alone and require verifiable cryptographic signatures (`did:github:<username>`,
-OpenSSH `ssh-ed25519` key fingerprints, or Ed25519 signatures declared in
-`signatures[]`).
+for descriptive human provenance. In Level 1 and Level 2 profiles (§11,
+§14.2, §14.5), elevated trust tiers (`verified`, `official`) MUST NOT
+rely on string prefixes alone and require verifiable cryptographic
+signatures (`did:key` Ed25519, `did:github:<username>`, or OpenSSH
+`ssh-ed25519` key fingerprints declared in `signatures[]`, verified over
+the SHA-256 digest of the RFC 8785 JSON Canonicalization Scheme (JCS)
+representation of the parsed YAML frontmatter excluding the `signatures`
+key, concatenated with `\n` and the raw UTF-8 Markdown body bytes).
 
 ---
 
@@ -545,9 +553,13 @@ It enumerates the directory's contents to support **progressive
 disclosure**: letting a human or agent see what is available before
 opening individual documents.
 
-Index files contain no frontmatter, with one exception: a bundle-root
-`index.md` MAY carry an `okf_version` key (§12). The body uses one or more
-sections, each grouping concepts under a heading:
+Index files contain no frontmatter, with two exceptions: a bundle-root
+`index.md` MAY carry an `okf_version` key (§12), and in ODKF profile
+bundles (§11, §14.5 `PE3`) a bundle-root `index.md` MAY act as a Root
+Concept Manifest when it declares an explicit DCAT class
+(`type: dcat:Dataset`, `type: dcat:DataService`, or
+`type: dcat:CatalogRecord`). The body uses one or more sections, each
+grouping concepts under a heading:
 
 ```markdown
 # Section / Group Heading
@@ -640,19 +652,20 @@ concept carries:
 - `attester`: The deterministic check. `resource` names code (no LLM) that
   takes a receipt and returns a verdict. It is meant to run consumer-side.
   
-  **Attester Sandboxing Invariant (Security):** Because an `attester.resource`
-  may originate from an untrusted third-party bundle, conforming consumers
-  MUST NOT execute external attester scripts directly on the host system
-  without process isolation. Runtimes MUST execute attester code within a
-  sandboxed execution environment (such as a WebAssembly / WASI runtime with
-  zero host filesystem/network access, or an unprivileged, isolated container
-  with bounded CPU and memory limits), or verify execution through declarative
-  receipt comparison (e.g. AST SQL equality).
+  **Attester Verification & Sandboxing Invariant (Security):** Default
+  `okf attest` verification operates as **Static / Declarative
+  Attestation** (deterministic SQL AST normalization and SHA-256 comparison
+  against `canonical_query_hash` with zero host script execution). Because
+  an external `attester.resource` script may originate from an untrusted
+  third-party bundle, conforming consumers MUST NOT execute untrusted
+  attester scripts on the host system without explicit user invocation or
+  process isolation; standardized attester sandboxing ABIs remain deferred
+  to a future revision (§12.1).
 
 What sits behind a `resource` (a Skill, a script, a container) is a
 packaging choice; OKF fixes the interface, not the packaging (§1).
 
-```markdown
+````markdown
 ---
 type: Attested Computation
 title: Revenue for fiscal year
@@ -687,7 +700,7 @@ The computation binds only the declared `parameters`, per the recognition
 policy.[^rev-policy]
 
 [^rev-policy]: Revenue recognition policy
-```
+````
 
 ### 10.3 The computation
 
@@ -782,19 +795,19 @@ is why both are needed.
 
 ## 11. Conformance & Modular Profiles (W3C QA SpecGL)
 
-In accordance with the **W3C Quality Assurance Framework: Specification Guidelines (SpecGL)** and **IETF RFC 2119 / RFC 8174**, OKF/ODKF v0.2 defines three cumulative **Conformance Profiles** (Dimensions of Variability) so lightweight tools can adopt the core format without implementing distributed P2P networking:
+In accordance with the **W3C Quality Assurance Framework: Specification Guidelines (SpecGL)** and **IETF RFC 2119 / RFC 8174**, OKF/ODKF v0.3 defines three cumulative **Conformance Profiles** (Dimensions of Variability) so lightweight tools can adopt the core format without implementing distributed P2P networking:
 
-1. **Level 0 — Core Knowledge Bundle (`level-0-core`):** Markdown + YAML frontmatter (`type`), cross-links, `index.md`, `log.md`, `sources`, `generated`, `verified`, `status`, and `stale_after` (Chapters 1–13).
-2. **Level 1 — Data Product & Contracts Profile (`level-1-contracts`):** Includes Level 0 plus `contracts` (Frictionless/DCAT/OpenAPI/CWL), canonical triads (`catalog:dataset:resource`), `skos` anchors, physical units (**UCUM/QUDT** `unit` and `aggregation_behavior`), semantic schema evolution (`okf diff`), `Attested Computation` verification (`okf attest`), and `zero_microdata` governance with *k-anonymity* (`min_group_size`).
-3. **Level 2 — Sovereign Federated / P2P Profile (`level-2-sovereign`):** Includes Level 1 plus `okf://` and `<dataset>.<resource>@<catalog>` Sovereign DNS resolution, composite archive `#fragment` extraction (RFC 7233 HTTP Range), Ed25519/OpenSSH cryptographic signatures, and Kademlia DHT / GossipSub transport (§15).
+1. **Level 0 — Core Knowledge Bundle (`level-0-core`):** Markdown + YAML frontmatter (`type`), cross-links, `index.md`, `log.md`, `sources`, `generated`, `verified`, `status`, `stale_after`, and declarative `Attested Computation` metadata (§1–§13).
+2. **Level 1 — Data Product & Contracts Profile (`level-1-contracts`, defined in Part II §14):** Includes Level 0 plus `contracts` (Frictionless/DCAT/OpenAPI/CWL), canonical triads (`catalog:dataset:resource`), `skos` anchors, physical units (**UCUM** — Unified Code for Units of Measure / **QUDT** — Quantities, Units, Dimensions and Data Types `unit` and `aggregation_behavior`), CLI verification contracts (`okf diff`, `okf attest`, §14.7), and `zero_microdata` governance with *k-anonymity* (`min_group_size`).
+3. **Level 2 — Sovereign Federated / P2P Profile (`level-2-sovereign`, defined in Part II §14–§15):** Includes Level 1 plus `okf://` and `<dataset>.<resource>@<catalog>` Sovereign DNS resolution, composite archive `#fragment` extraction (RFC 7233 HTTP Range), Ed25519/OpenSSH cryptographic signatures, and optional Kademlia DHT / GossipSub transport (§15).
 
-A bundle is **conformant** with OKF v0.2 (`level-0-core`) if:
+A bundle is **conformant** with OKF v0.3 (`level-0-core`) if:
 
 1. Every non-reserved `.md` file in the tree contains a parseable YAML
    frontmatter block.
 2. Every frontmatter block contains a non-empty `type` field.
 3. Every reserved filename (`index.md`, `log.md`) follows the structure in
-   §8 and §9 respectively when present. In single-dataset ODKF nodes (`level-1-contracts`), a root `index.md` MAY act as the primary Root Concept Manifest when it declares an explicit `type` (e.g., `dcat:Dataset`, `dcat:DataService`, or `dcat:CatalogRecord`).
+   §8 and §9 respectively when present. In ODKF bundles (`level-1-contracts`), a bundle-root `index.md` MAY act as a Root Concept Manifest when it declares an explicit DCAT class (`type: dcat:Dataset`, `type: dcat:DataService`, or `type: dcat:CatalogRecord`).
 
 A bundle or dataset is **conformant with Level 1 (`level-1-contracts`)** if:
 
@@ -807,7 +820,7 @@ A bundle or dataset is **conformant with Level 1 (`level-1-contracts`)** if:
 A node or catalog deployment is **conformant with Level 2 (`level-2-sovereign`)** if:
 
 1. It satisfies all Level 1 requirements.
-2. Every digital signature declared in `signatures[]` verifies cryptographically against the publisher's public key or verified identity (`did:github`, OpenSSH `ssh-ed25519`).
+2. Every digital signature declared in `signatures[]` verifies cryptographically against the publisher's public key or verified identity (`did:key`, `did:github`, OpenSSH `ssh-ed25519`).
 3. Sovereign resource addresses resolve across federated registries (§14.4) or P2P transports ([RFC 0001](docs/rfcs/0001-p2p-sovereign-network.md)).
 
 When the trust, lifecycle, provenance, or computation families are
@@ -832,41 +845,21 @@ particular, consumers MUST NOT reject a bundle because of:
 
 ## 12. Versioning
 
-This document specifies OKF version **0.2**. Revisions are versioned as
-`<major>.<minor>`:
+This document specifies OKF version **0.3**. Format revisions are
+versioned as `<major>.<minor>` (whereas dataset `version` fields and
+`okf diff` follow Semantic Versioning 2.0.0 `MAJOR.MINOR.PATCH`):
 
 - A **minor** version bump introduces backward-compatible additions (new
   optional fields, new conventional section headings).
 - A **major** version bump may make breaking changes (renaming required
   fields, changing reserved filenames).
 
-Bundles MAY declare the version they target with `okf_version: "0.2"` in a
-bundle-root `index.md` frontmatter block (the only place frontmatter is
-permitted in an `index.md`). Consumers that do not understand the declared
-version SHOULD attempt best-effort consumption rather than refusing the
-bundle.
+Bundles MAY declare the format version they target with
+`okf_version: "0.3"` (or legacy `"0.2"`) in a bundle-root `index.md`
+frontmatter block. Consumers that do not understand the declared version
+SHOULD attempt best-effort consumption rather than refusing the bundle.
 
-### 12.1 Standardized `AttestationVerdict` Wire Format (`okf attest`)
-
-To enable deterministic verification (`okf attest <concept.md> --receipt <json_or_path>` or `--sql <query>`), any conforming attester MUST emit a JSON object over `stdout` adhering to the following contract:
-
-```json
-{
-  "verdict": "verified | refuted | error",
-  "canonical_query_hash": "sha256:...",
-  "checked_at": "2026-11-05T12:00:00Z",
-  "reason": "AST/Canonical SQL match & parameter binding verified against sanctioned computation"
-}
-```
-
-### 12.2 Semantic Schema Evolution (`okf diff`)
-
-When evolving bundles or `datapackage` contracts across versions (`supersedes` / `superseded_by`), `okf diff <bundle_v1> <bundle_v2>` classifies modifications according to **Semantic Versioning 2.0.0**:
-- **PATCH:** Documentation or prose corrections in the Markdown body without schema alterations.
-- **MINOR:** Backward-compatible additions (new optional columns, new resources, or new concept nodes).
-- **MAJOR (Breaking):** Removal or renaming of columns/resources, data type mutations, or changes to physical units (**UCUM/QUDT**) or ontological anchors (`rdfType` / `skos`).
-
-### 12.3 Considered and Deferred
+### 12.1 Considered and Deferred
 
 The following are intentionally left to a future revision:
 
@@ -878,10 +871,10 @@ The following are intentionally left to a future revision:
 
 ## 13. Changes from v0.1
 
-v0.2 supersedes OKF v0.1 and is a minor version bump under §12, except for
-two deliberate breaking changes called out below because they rename or
-retire v0.1 fields. A v0.1 bundle is consumable by a v0.2 consumer under
-the fallbacks noted here.
+v0.3 (incorporating v0.2) supersedes OKF v0.1; the legacy `timestamp` and
+`# Citations` changes introduced in v0.2 are documented below as
+historical breaking changes, while a v0.1 or v0.2 bundle remains
+consumable under the fallbacks noted here.
 
 ### 13.1 Breaking changes
 
@@ -914,18 +907,19 @@ unchanged.
 
 ---
 
-# Part II — The ODKF v0.2 Profile
+# Part II — The ODKF v0.3 Profile
 
-Chapters 1–13 define core OKF: a minimal, tool-free markdown container.
-This part defines **ODKF v0.2** (Open Data Knowledge Format), an optional
+Sections 1–13 define core OKF: a minimal, tool-free markdown container.
+This part defines **ODKF v0.3** (Open Data Knowledge Format), an optional
 profile for sovereign, federated data ecosystems. Profile requirements
 apply only to implementations that claim ODKF conformance; a core OKF
-bundle remains conformant under §11 without implementing them. ODKF v0.2
-tracks OKF v0.2 and follows the same versioning rules (§12).
+bundle remains conformant under §11 without implementing them. ODKF v0.3
+tracks OKF v0.3 and follows the same versioning rules (§12), remaining
+backward compatible with v0.2 bundles.
 
-## 14. Open Data Knowledge Format (ODKF v0.2) Extension: Meta-Standard Index & Tripartite Epistemology
+## 14. Open Data Knowledge Format (ODKF v0.3) Extension: Meta-Standard Index & Tripartite Epistemology
 
-ODKF is a profile of OKF v0.2 for sovereign data-mesh architectures,
+ODKF is a profile of OKF v0.3 for sovereign data-mesh architectures,
 federated analytical catalogs, and verifiable data products. Rather than
 competing with existing standards or forcing centralized conversions, it
 acts as a **meta-standard and index of indexes** that references external
@@ -973,42 +967,63 @@ dimensions:                            # OPTIONAL. Analytical dimensions for OLA
   - municipio
   - año
 
-# --- Syntactic Contracts (ODKF v0.2) ---
+# --- Syntactic Contracts (ODKF v0.3) ---
 contracts:                             # REQUIRED for active data and service concepts
   - type: datapackage                  # Frictionless DataPackage / Table Schema
     path: datapackage.yaml
   - type: openapi                      # REST API endpoints (OpenAPI v3 / Springdoc)
-    path: https://api.gob.bo/v3/api-docs
+    ref: https://api.gob.bo/v3/api-docs
   - type: cwl                          # Executable batch tasks / pipelines
     path: tasks/clean_data.cwl
 
-# --- Lineage & Cryptographic Integrity (ODKF v0.2) ---
+# --- Semantic Fields & Value Labels (ODKF v0.3) ---
+semantic_fields:                       # OPTIONAL. Coded columns mapped to Concept docs
+  - field_name: entidad_municipal
+    concept_id: presupuesto_2025:concepts/entidad.md
+    rdf_type: https://schema.org/AdministrativeArea
+    unit: http://qudt.org/vocab/unit/NUM
+    aggregation_behavior: sum          # sum | avg | count | min | max | none
+    value_labels:
+      - raw_value: "GAM La Paz"
+        concept_id: presupuesto_2025:concepts/gam_la_paz.md
+        alt_labels: ["GAMLP", "Alcaldía de La Paz"]
+
+# --- Structural Graph Relations (ODKF v0.3) ---
+relations:                             # OPTIONAL. Acyclic structural edges
+  - rel: derived_from                  # derived_from | supersedes | in_catalog | foreign_key | references
+    target: censo_2024:ine_poblacion
+
+# --- Lineage & Cryptographic Integrity (ODKF v0.3) ---
 lineage:
-  source:
+  sources:                             # Legacy singular key 'source' accepted as deprecated alias
     - url: https://raw.source.gob.bo/censo_raw.csv
   transformations:
-    - tool: scripts/clean_data.py
-      type: script
+    - step: clean_data
+      tool: scripts/clean_data.py
       hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
   version: 1.0.0
   updated_at: 2026-05-01T12:00:00Z
 
-# --- Governance Policy (ODKF v0.2 Meta-Specification) ---
-# Can be a built-in profile shorthand (allow_all | zero_microdata | deny)
-# or a structured reference/list pointing to external policy standards (W3C ODRL, OPA/Rego, W3C DPV, XACML):
-policy: allow_all
+# --- Governance Policy (ODKF v0.3 Meta-Specification) ---
+# 'policy' accepts shorthand (allow_all | zero_microdata | deny) or a single PolicySpec object.
+# 'policies' accepts an array of PolicySpec objects. When both appear, 'policy' is merged as the
+# first element of 'policies[]' and evaluated with most-restrictive-wins (deny > zero_microdata > allow_all).
+policy:
+  profile: zero_microdata
+  min_group_size: 5
 policies:
   - type: odrl
     ref: https://www.w3.org/ns/odrl/2/policy.json
   - type: opa
     path: policies/privacy_guard.rego
 
-# --- Digital Signatures & Cryptographic Provenance (ODKF v0.2) ---
+# --- Digital Signatures & Cryptographic Provenance (ODKF v0.3) ---
+# Signatures verify the SHA-256 digest of RFC 8785 JCS(frontmatter without 'signatures') + '\n' + raw UTF-8 body.
+# Verification status is strictly a runtime output and MUST NOT be persisted by producers as 'verified: true'.
 signatures:                            # OPTIONAL. Cryptographic authorship proofs
-  - key_id: did:github:andreschirinos  # Public key identity / DID
+  - key_id: did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
     algorithm: ssh-ed25519             # Signature algorithm
     signature: AAAAC3NzaC1lZDI1NTE5AAAAI...
-    verified: true
 ---
 ```
 
@@ -1018,11 +1033,11 @@ Because OKF/ODKF is a **meta-specification** that orchestrates existing domain s
 
 | Category | Standard `type` Examples (Open Set) | Reference Standards | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Tabular & Statistical Schemas** | `datapackage`, `sdmx`, `ddi`, `json_schema`, `avro`, `parquet` | Frictionless DataPackage (v1/v2), ISO 17369 (SDMX), DDI, JSON Schema | Tabular schemas, multidimensional cubes, physical units (UCUM/QUDT), value labels. |
-| **Catalog & Geospatial Metadata** | `dcat`, `iso19115`, `stac` | W3C DCAT (v2/v3), ISO 19115, SpatioTemporal Asset Catalog | Public sector distributions, spatial bounding boxes, CRS projections. |
+| **Tabular & Statistical Schemas** | `datapackage`, `sdmx`, `ddi`, `json_schema`, `avro`, `parquet` | Frictionless DataPackage (v1/v2), ISO 17369 (SDMX — Statistical Data and Metadata eXchange), DDI (Data Documentation Initiative), JSON Schema | Tabular schemas, multidimensional cubes, physical units (UCUM/QUDT), value labels. |
+| **Catalog & Geospatial Metadata** | `dcat`, `iso19115`, `stac` | W3C DCAT (v2/v3), ISO 19115, STAC (SpatioTemporal Asset Catalog) | Public sector distributions, spatial bounding boxes, CRS projections. |
 | **Service & Streaming Interfaces** | `openapi`, `asyncapi`, `graphql`, `grpc`, `flight_sql` | OpenAPI v3.0/v3.1, AsyncAPI, GraphQL, Arrow Flight SQL | Dynamic REST/RPC services, event streams, federated SQL endpoints. |
 | **Executable Pipelines & Tools** | `cwl`, `owl-cli`, `okf-cli`, `cli_tool`, `dbt` | Common Workflow Language (`CommandLineTool`), semantic CLI contracts | Deterministic batch transformations, CLI parameters, output bindings. |
-| **Governance & Privacy Policies** | `okf_builtin`, `odrl`, `opa`, `rego`, `dpv`, `xacml` | Built-in (`allow_all`, `zero_microdata`, `deny`), W3C ODRL 2.2, OPA/Rego, W3C DPV | Access control, $k$-anonymity cohort thresholds (`min_group_size`), differential privacy ($\epsilon$), deontic rights. |
+| **Governance & Privacy Policies** | `okf_builtin`, `odrl`, `opa`, `rego`, `dpv`, `xacml` | Built-in (`allow_all`, `zero_microdata`, `deny`), W3C ODRL 2.2, OPA/Rego, W3C DPV (Data Privacy Vocabulary), XACML (eXtensible Access Control Markup Language) | Access control, *k*-anonymity cohort thresholds (`min_group_size`), differential privacy ($\epsilon$), deontic rights. |
 
 #### 14.3.1 Semantic Correspondence Resolution (`ValueLabel` $\rightarrow$ `Concept` $\rightarrow$ `SKOS`)
 
@@ -1032,9 +1047,13 @@ To resolve semantic heterogeneity across independent datasets without hardcoding
 2. **`Concept` to `SKOS` Ontological Anchors:** Each `Concept` document defines its SKOS relationships (`skos`, `exact_match`, `close_match`, `broader`, `notation`), linking the concept to:
    - **External Ontologies:** Universal URIs such as Wikidata (`http://www.wikidata.org/entity/Q1491`), Schema.org, GeoNames, or QUDT.
    - **Cross-Dataset Concepts:** Direct references to concept documents in other datasets (`exact_match: ["censo_2024:concepts/mun_020101.md"]`).
-3. **Deterministic Graph Correspondence & SQL Join Generation:** Two heterogeneous datasets $A$ and $B$ match on `ValueLabel` $v_A \in A$ and `ValueLabel` $v_B \in B$ whenever their linked concepts $C_A$ and $C_B$ either reference each other directly (`direct_concept_ref`) or share a common ontological URI in `exact_match`, `skos`, or `close_match`. The core engine compiles these correspondences into deterministic ANSI SQL `CASE ... END` projections for cross-dataset `JOIN` execution.
+3. **Deterministic Graph Correspondence & SQL Join Generation:** Two heterogeneous datasets $A$ and $B$ match on `ValueLabel` $v_A \in A$ and `ValueLabel` $v_B \in B$ under three correspondence predicates:
+   - `direct_concept_ref`: Both `ValueLabel` items point to the same `concept_id`, or one concept's ID appears in the other's `exact_match` or `skos` list.
+   - `skos:exactMatch`: Both concepts share an identical URI in `exact_match` (or one appears in the other's `exact_match`/`skos`).
+   - `skos_anchor`: Both concepts share an identical URI in `skos`.
+   - `skos:closeMatch`: One concept's `close_match` URI matches an `exact_match` or `skos` URI of the other concept (non-transitive: two concepts sharing only a `close_match` URI MUST NOT match transitively).
    
-   **Transitive Match Constraint:** Because `skos:closeMatch` is inherently non-transitive and lacks cardinality constraints, automatic SQL generation MUST restrict joins to verified correspondences or `skos:exactMatch` to prevent Cartesian join explosions.
+   **Transitive Match & Fail-Fast Constraint:** Because `skos:closeMatch` is inherently non-transitive and lacks cardinality constraints, automatic SQL generation (`GenerateCrossDatasetJoinSQL`) MUST exclude `skos:closeMatch` correspondences (restricting automated joins to `direct_concept_ref`, `skos:exactMatch`, and `skos_anchor` unless an explicit exploratory opt-in flag is set). If filtering yields zero exact or verified correspondences, SQL join generation MUST fail with an explicit error rather than falling back to unaligned raw column equality (`source.col = target.col`).
 
 ### 14.4 Canonical Triad Addressing
 
@@ -1063,25 +1082,27 @@ censo_2024.cartografia@bolivia#departamentos/lapaz.geojson
 
 Engines MUST accept single-quoted `'bolivia:elecciones:votos'`, double-quoted `"bolivia:elecciones:votos"`, and backtick-quoted `` `bolivia:elecciones:votos` `` in SQL queries, transparently mapping them to resolved paths.
 
-**Dot Disambiguation:** When using reverse DNS notation (`<dataset>.<resource>@<catalog>`), if a dataset name contains dots (e.g., `censo.2024`), consumers MUST disambiguate by quoting or use the unambiguous canonical colon form `bolivia:censo.2024:votos`.
+**Dot Disambiguation:** When using reverse DNS notation (`<dataset>.<resource>@<catalog>`), if a dataset name contains dots (e.g., `censo.2024`), consumers MUST support double-quoted dataset segments (`"censo.2024".votos@bolivia`) as well as the canonical colon form (`bolivia:censo.2024:votos`), stripping enclosing quotes from the resolved `dataset` segment during canonical normalization.
 
 ### 14.5 Conformance Invariants and Validation Rules
 
-#### Producer Invariants (PE1–PE5)
+#### Producer Enforcement Invariants (PE1–PE5)
 
 - **PE1 (Markdown + YAML):** Every concept file MUST be valid UTF-8 Markdown beginning with a YAML frontmatter delimited by `---`.
 - **PE2 (Mandatory `type`):** The frontmatter MUST include a non-empty `type` string.
-- **PE3 (Reserved Files Integrity):** `index.md` and `log.md` MUST NOT define single-concept frontmatters; they serve directory listing and update chronologies.
-- **PE4 (Syntactic Contracts Validity):** If `contracts` is specified, each item MUST declare a valid `type` and an accessible `path` (relative local path) or `ref` (absolute HTTP/HTTPS URI).
+- **PE3 (Reserved Files Integrity):** `index.md` and `log.md` MUST NOT define shorthand single-concept frontmatters (`type: dataset` or `type: service` emits `PE3-RESERVED-FILE` `WARNING`). A bundle-root `index.md` MAY act as a Root Concept Manifest only when it declares an explicit DCAT class (`type: dcat:Dataset`, `type: dcat:DataService`, or `type: dcat:CatalogRecord`).
+- **PE4 (Syntactic Contracts Validity):** If `contracts` is specified, each item MUST declare a valid `type` and an accessible `path` (relative local path) or `ref` (absolute HTTP/HTTPS URI). Placing an `http(s)://` URI inside `path` emits `PE4-REMOTE-IN-PATH` (`WARNING`).
 - **PE5 (Cryptographic Hash Integrity):** All declared hashes in `lineage.transformations[].hash` MUST follow the format `sha256:<hex64>` and match the computed SHA-256 digest of the referenced tool.
 
-#### Consumer Invariants (OE1–OE5)
+#### Consumer / Operational Enforcement Invariants (OE1–OE7)
 
 - **OE1 (Graceful Progressive Disclosure):** Consumers MUST be capable of parsing concept metadata from frontmatter alone without reading the entire body.
 - **OE2 (Format Heterogeneity Tolerance):** Consumers MUST resolve tabular resources regardless of whether the physical target is CSV, TSV, Parquet, or JSON.
-- **OE3 (Zero-Microdata Enforcement):** If a concept or resource declares `policy: zero_microdata`, consumers MUST refuse unauthenticated raw row-level scans (`SELECT *`) and permit only aggregate projections (`COUNT`, `AVG`, `SUM`, `MIN`, `MAX`, `GROUP BY`). Authenticated identities with `admin`, `analyst`, or `official` trust tiers MAY bypass zero-microdata restrictions when authorized.
-- **OE4 (Canonical Triad Resolution):** Consumers MUST parse all five canonical triad representations (colon, slash, reverse DNS, sovereign URI, direct URL) including `#fragment` subfile identifiers.
+- **OE3 (Zero-Microdata Enforcement):** If a concept or resource declares `policy: zero_microdata` (or merges it via `policies`), consumers MUST refuse unauthenticated raw row-level scans (`SELECT *`), permit only aggregate projections (`COUNT`, `AVG`, `SUM`, `MIN`, `MAX`, `GROUP BY`), and enforce a cohort threshold of `HAVING COUNT(*) >= min_group_size` (default `5`) on grouped queries. Authenticated identities with `admin`, `analyst`, or `official` trust tiers MAY bypass zero-microdata restrictions when authorized.
+- **OE4 (Canonical Triad Resolution):** Consumers MUST parse all five canonical triad representations (colon, slash, reverse DNS including quoted dots, sovereign URI, direct URL) including `#fragment` subfile identifiers.
 - **OE5 (Air-Gapped / Offline Fallback):** When operating offline, consumers MUST resolve datasets using local cache (`$OKF_HOME/cache` or `.okf/cache`) without failing due to unavailable remote network endpoints.
+- **OE6 (URL Scheme Guard):** Conforming runtimes dereferencing remote reference fields (`sources`, `contracts[].ref`, `/.well-known/`, HTTP range reads) MUST allow only `https://` (and `http://` when configured for local or intranet catalogs), rejecting `file://`, `gopher://`, and `ftp://` URIs. *(Non-normative Operational Note: Multi-tenant hosted proxy deployments SHOULD additionally reject private RFC 1918, loopback, and cloud metadata `169.254.169.254` IP addresses.)*
+- **OE7 (Path Containment & Zip Slip Guard):** All local relative paths (`§6.2`, `contracts[].path`, `policies[].path`, `computation`) MUST be lexically cleaned (`filepath.Clean`), resolved through symlinks when the target exists on disk, and verified to remain strictly inside the bundle root directory (`OE7-PATH-TRAVERSAL` `ERROR` otherwise). Composite archive `#fragment` extractors (`§14.4.1`) MUST reject any `#fragment` or archive member entry containing `..` segments or a leading `/`.
 
 #### Validation Rules (RULE-01 to RULE-12)
 
@@ -1092,15 +1113,15 @@ A conforming ODKF validator MUST execute the invariants above and report violati
 | **RULE-01** | YAML frontmatter parses correctly. | ERROR | PE1 |
 | **RULE-02** | `type` is present and non-empty. | ERROR | PE2 |
 | **RULE-03** | If `type == dataset`, missing `skos` is a WARNING; a malformed `skos` URI is an ERROR. | WARNING / ERROR | §14.2 |
-| **RULE-04** | Every `contracts[]` entry is a map with `type` and `path` (or `ref`); unknown contract types emit WARNING; missing local paths emit WARNING (`PE4-CONTRACT-LOCAL-NOT-FOUND`). | WARNING | PE4 |
+| **RULE-04** | Every `contracts[]` entry is a map with `type` and `path` (or `ref`); unknown contract types emit INFO/WARNING; remote URLs in `path` emit `PE4-REMOTE-IN-PATH` WARNING; missing local paths emit WARNING (`PE4-CONTRACT-LOCAL-NOT-FOUND`). | WARNING | PE4 |
 | **RULE-05** | `lineage.transformations[].hash` matches `^sha256:[a-fA-F0-9]{64}$`. | ERROR | PE5 |
-| **RULE-06** | `policy` matches `allow_all`, `zero_microdata`, `deny`, or points to a valid structured policy definition / engine (ODRL, OPA, DPV). | ERROR | §14.2 |
-| **RULE-07** | A bundle contains at least one concept; an empty bundle emits `RULE-07-EMPTY-BUNDLE`. Traversal detects cycles and stops (`RULE-12`). | ERROR | §11 |
-| **RULE-08** | A canonical triad has 2–3 components matching `^[a-zA-Z0-9_.-]+:[a-zA-Z0-9_. -]+(:[a-zA-Z0-9_. -]+)?(#.*)?$`. | ERROR | §14.4 |
-| **RULE-09** | Actor format: `generated.by` and `verified[].by` must follow canonical actor conventions (`agent:<name>`, `human:<name>`, `<email>`, or URI). | WARNING / ERROR | §7 |
-| **RULE-10** | Status lifecycle: `status` must be a valid canonical status enum; if `status == superseded`, `superseded_by` is REQUIRED. | WARNING / ERROR | §5.4 |
-| **RULE-11** | Temporal syntax: `expires`, `stale_after`, `cadence`, `generated.at`, and `verified[].at` must be valid ISO 8601 timestamps or durations. | ERROR | §5.5 |
-| **RULE-12** | Graph integrity: Structural relations (`supersedes`, `superseded_by`, `derived_from`, `in_catalog`) must form a strict Directed Acyclic Graph (DAG) (cycle is ERROR); body navigational links allow cycles (WARNING). | ERROR / WARNING | §6.1 |
+| **RULE-06** | `policy` / `policies` matches `allow_all`, `zero_microdata`, `deny`, or points to a valid structured policy definition / engine (ODRL, OPA, DPV). | ERROR | §14.2 |
+| **RULE-07** | A bundle contains at least one concept; an empty bundle emits `RULE-07-EMPTY-BUNDLE`. Traversal detects cycles and stops (`RULE-12`). | ERROR | §14.5 |
+| **RULE-08** | A canonical triad matches one of the five canonical forms: `^([a-zA-Z0-9_\-\.]+[:/][a-zA-Z0-9_\-\. ]+([:/][a-zA-Z0-9_\-\. ]+)?\|(?:"[^"]+"\|[a-zA-Z0-9_\-\.]+)\.[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+|(?:okf\|odkf\|datamesh)://[a-zA-Z0-9_\-\./]+|https?://[^\s#]+)(#[a-zA-Z0-9_\-\./]+)?$`. | ERROR | §14.4 |
+| **RULE-09** | Actor format: `generated.by`, `verified[].by`, and `signatures[].signer` MUST follow canonical actor conventions (`<producer>/<version>`, `(agent\|human\|process\|user\|team):<id>`, `Name <email>`, or `http(s)://`/`did:` URI). | WARNING / ERROR | §7 |
+| **RULE-10** | Status lifecycle: `status` SHOULD be in the canonical status enum (`§5.4`); if `status == superseded`, `superseded_by` is REQUIRED (ERROR). | WARNING / ERROR | §5.4 |
+| **RULE-11** | Temporal syntax: `stale_after`, `freshness.expires`, `generated.at`, `verified[].at`, and `signatures[].signed_at` MUST be valid ISO 8601 dates/timestamps (`§5.2`, `§5.5`); `freshness.cadence` MUST be a valid ISO 8601 duration (`P1D`, `P1W`, `P1M`). | WARNING / ERROR | §5.2, §5.5 |
+| **RULE-12** | Graph integrity: Structural relations (`supersedes`, `superseded_by`, `relations[rel=derived_from\|supersedes\|in_catalog]`) MUST form a strict Directed Acyclic Graph (DAG) (cycle is ERROR); body navigational links allow cycles (WARNING). | ERROR / WARNING | §5.4, §14.2 |
 
 ### 14.6 Ultra-Lightweight Catalog Profile (`llms.txt` / `index.md` Conformance)
 
@@ -1133,12 +1154,37 @@ An ultra-lightweight catalog file (demonstrated in production at `https://datosb
 
 #### 14.6.3 Engine Conformance & Translation
 
-Conforming consumers and SDK engines (such as `datamesh-sdk`) MUST:
+Conforming consumers and SDK engines MUST:
 
 1. Accept direct URLs ending in `/llms.txt`, `/index.md`, or `/catalog.yaml`.
-2. Parse list items matching `- [<title>](<url>): <desc>` into registered `dcat:Dataset` instances.
-3. Parse the optional parenthesized metadata in either English or the localized form (`Domain` / `Dominio`, `Resources` / `Recursos`); when present, use it to construct canonical triads (`catalog:dataset:resource`).
-4. Support zero-cost hosting over static web servers, GitHub Pages, or S3 buckets without a backend database.
+2. Probe RFC 8615 well-known capability discovery at `/.well-known/okf.json` (with `/.well-known/datamesh.json` supported as a legacy fallback) to detect catalog auth requirements (`none`, `api_key`, `bearer`, `keycloak`) and endpoint metadata.
+3. Parse list items matching `- [<title>](<url>): <desc>` into registered `dcat:Dataset` instances.
+4. Parse the optional parenthesized metadata in either English or the localized form (`Domain` / `Dominio`, `Resources` / `Recursos`); when present, strip the metadata suffix from the description and construct canonical triads (`catalog:dataset:resource`).
+5. Support zero-cost hosting over static web servers, GitHub Pages, or S3 buckets without a backend database.
+
+### 14.7 CLI Verification & Schema Evolution Wire Contracts
+
+#### 14.7.1 Standardized `AttestationVerdict` Wire Format (`okf attest`)
+
+To enable deterministic static verification (`okf attest <concept.md> --receipt <json_or_path>` or `--sql <query>`), `okf attest` normalizes both the sanctioned SQL computation and the executed SQL (`NormalizeSQLCanonical`: strip SQL comments, collapse whitespace, uppercase SQL keywords, substitute `@param` / `{{ var('param') }}` bindings, compute SHA-256 digest) and emits JSON over `stdout`:
+
+```json
+{
+  "verdict": "verified | refuted | error",
+  "canonical_query_hash": "sha256:...",
+  "checked_at": "2026-11-05T12:00:00Z",
+  "reason": "AST/Canonical SQL match & parameter binding verified against sanctioned computation"
+}
+```
+
+Process exit codes: `0` for `verified`, `1` for `refuted`, and `2` for syntax, IO, or runtime error.
+
+#### 14.7.2 Semantic Schema Evolution (`okf diff`)
+
+When evolving bundles or `datapackage` contracts across versions (`supersedes` / `superseded_by`), `okf diff <bundle_v1> <bundle_v2>` classifies modifications according to **Semantic Versioning 2.0.0** (exit code `0` for `PATCH`/`MINOR`, `1` for `MAJOR` breaking changes, `2` for error):
+- **PATCH:** Documentation or prose corrections in the Markdown body without schema alterations.
+- **MINOR:** Backward-compatible additions (new optional columns, new resources, or new concept nodes).
+- **MAJOR (Breaking):** Removal or renaming of columns/resources, data type mutations, or changes to physical units (**UCUM/QUDT**) or ontological anchors (`rdf_type` / `skos`).
 
 ---
 
@@ -1284,28 +1330,22 @@ The Open Knowledge Format functions as a meta-index bridging disparate internati
 
 ---
 
-## 17. Monitored Script Execution, Background Lineage Interception, and Embedded SQLite State Store
+## 17. Monitored Script Execution, Provenance IPC, and Operational State Store
 
-### 17.1 The Runtime Lineage Gap
-Static declaration of lineage in metadata files inevitably drifts from reality as data engineering pipelines evolve. ODKF v0.2 closes this operational gap by introducing monitored runtime execution:
-1. **Terminal / CLI Runner:** `okf run <script.py|script.sh|query.sql> --target <triad>` monitors execution, intercepts environment variables, standard inputs, and registers output artifacts.
-2. **Function Decorator & Context Manager:** In language SDKs (Python, TypeScript, R), developers annotate functions (`@dm.track_lineage(target="dataset:resource")`) or wrap code blocks (`with dm.track(...):`), capturing inputs and computational steps transparently.
+### 17.1 Local Script Runner & `OKF_PROVENANCE_OUT` IPC Protocol
+Static declaration of lineage in metadata files inevitably drifts from reality as data engineering pipelines evolve. ODKF v0.3 closes this operational gap through explicit user-initiated local script monitoring:
+1. **Terminal / CLI Runner:** `okf run <script.py|script.sh|query.sql|notebook.ipynb> --target <triad>` executes local scripts explicitly invoked by the user (analogous to `make` or `npm run`; isolation when running untrusted code is delegated to the external OS/container environment) while setting the environment variable `OKF_PROVENANCE_OUT` to a temporary JSONL file path.
+2. **SDK Tracking Helpers:** In language SDKs (Python, TypeScript, R), pipelines annotate steps (`@okf.track_lineage(target="dataset:resource")` / `with okf.track(...):`; `@dm.track_lineage` / `dm.track` retained as legacy aliases) that append JSONL records to `$OKF_PROVENANCE_OUT`.
+3. **JSONL Event Contract (`OKF_PROVENANCE_OUT`):** Each non-empty line is a JSON object with `type` in `{input, step, output, distribution, quality, metric, note, drift}` and standard optional fields (`name`, `resource`, `path`, `format`, `sha256`, `bytes`, `rows`, `cols`, `code_hash`, `severity`, `message`, `metrics`, `timestamp`). The runner consumes these events to sync `datapackage.yaml` additively and append execution lineage to `log.md`.
 
-### 17.2 Embedded SQLite Operational State Store
-To satisfy the KISS/YAGNI principles without an external database server,
-an ODKF runtime MUST persist operational lineage in the embedded SQLite
-store defined in §18.2 (`$OKF_HOME/metadata.db` or `.okf/metadata.db`,
-where `$OKF_HOME` is a runtime-defined configuration directory).
-The canonical schema for `executions`, `lineage_sources`,
-`lineage_transformations`, and `artifacts` lives there and is not
-duplicated in this chapter. The reference SDK may use `.datamesh/` for
-backward compatibility.
+### 17.2 Embedded Operational State Store
+When a client SDK persists local caching and execution memory across runs, it resolves `$OKF_HOME/metadata.db` or `.okf/metadata.db` (falling back to `$DATAMESH_HOME/metadata.db` or `.datamesh/metadata.db` for backward compatibility). Abstract operational state entities are defined in §18.2.
 
 ### 17.3 Agent-Assisted Publishing Workflow
-The operational SQLite store acts as the episodic memory for autonomous agents:
-1. **Inspection:** Through semantic MCP tools (`datamesh_get_lineage`), an agent inspects recent execution records, artifact checksums, and upstream derivations.
-2. **Synthesis:** The agent or pipeline synthesizes the attested W3C PROV-O metadata into the concept's frontmatter and its referenced `datapackage` contract (`lineage: { sources, transformations, was_derived_from }`).
-3. **Publication:** The agent verifies the generated package against syntactic contracts (§14.2, §14.5) and invokes federated publication (`dm.publish`) to make the data product available across sovereign catalogs.
+The operational store acts as episodic memory for autonomous agents:
+1. **Inspection:** Through semantic MCP tools (`okf_get_lineage` / `datamesh_get_lineage`), an agent inspects recent execution records, artifact checksums, and upstream derivations.
+2. **Synthesis:** The agent or pipeline synthesizes W3C PROV-O metadata into the concept's frontmatter and its referenced `datapackage` contract (`lineage: { sources, transformations }` and `relations: [{ rel: derived_from, target }]`).
+3. **Publication:** The agent verifies the generated package against syntactic contracts (§14.2, §14.5) and invokes federated publication to make the data product available across sovereign catalogs.
 
 ---
 
@@ -1317,31 +1357,31 @@ An ODKF runtime MUST maintain a strict boundary between declarative user configu
 
 1. **Declarative User Configuration (`okf.yaml` / `trust.yaml`):**
    - Explicit human intents, including catalog seed URLs, network timeouts, local workspace roots, query engine defaults (`duckdb`, `inmem`), and *Root Trust Anchors* (cryptographic author allowlists, OpenSSH public key fingerprints, verification policies `strict` vs `permissive`), MUST reside in human-readable, version-controlled YAML/JSON text files.
-   - Deleting operational caches MUST NEVER alter human configuration files.
+   - Deleting operational caches MUST NOT alter human configuration files.
 2. **Operational State & Persistent Lineage:**
-   - Client runtimes manage local caching and execution lineage via an embedded SQLite database (`$OKF_HOME/metadata.db` or `.okf/metadata.db`).
+   - Client runtimes manage local caching and execution lineage via an embedded state store (`$OKF_HOME/metadata.db` or `.okf/metadata.db`).
    - **Architectural Boundary:** Runtimes MUST distinguish between:
      - **Disposable Caches (`cache_entries`, `dns_cache`, `keys_cache`):** Ephemeral data that can be safely purged. If deleted, the runtime self-heals by re-probing endpoints, re-fetching keys, and re-downloading resources upon next access.
      - **Persistent Lineage Ledger (`executions`, `lineage_sources`, `lineage_transformations`, `artifacts`):** The local cryptographic audit trail of computations and transformations. Runtimes SHOULD export this lineage to `log.md` or PROV-O manifests before purging local state.
 
 ### 18.2 Relational Schema & Connection Invariants
 
-The normative relational schema for `metadata.db`, table definitions (`cache_entries`, `dns_cache`, `keys_cache`, `executions`, `lineage_sources`, `lineage_transformations`, `artifacts`), mandatory SQLite connection invariants (`PRAGMA foreign_keys = ON;`, `PRAGMA journal_mode = WAL;`, `PRAGMA busy_timeout = 5000;`), and schema migration strategies (`PRAGMA user_version`) are fully documented in [OKF Client Operational State Architecture](docs/architecture/operational-state-store.md).
+The normative SQLite relational schema for `metadata.db` (entities `cache_entries`, `dns_cache`, `keys_cache`, `executions`, `lineage_sources`, `lineage_transformations`, `artifacts`), mandatory connection invariants (`PRAGMA foreign_keys = ON;`, `PRAGMA busy_timeout = 5000;` per connection; `PRAGMA journal_mode = WAL;` on init), and schema migration rules (`PRAGMA user_version`) are specified in [OKF Client Operational State Architecture](docs/architecture/operational-state-store.md).
 
 ---
 
 # Appendix A: Worked Example, an Income Statement
 
-One bundle exercising every family, shown as a v0.1 to v0.2 migration of an
+One bundle exercising every family, shown as a v0.1 to v0.3 migration of an
 income statement with two figures, revenue and gross profit.
 
-### v0.1 Form
+## A.1 v0.1 Form
 
 A single doc: both figures in one concept, the SQL in prose an agent can
 read, ignore, or rewrite, citations a flat list, and the only timestamp is
 `timestamp`.
 
-```markdown
+````markdown
 ---
 type: Metric
 title: Income statement (fiscal year)
@@ -1374,9 +1414,9 @@ WHERE fiscal_year = <year> AND segment = <segment>
 - https://wiki.acme/finance/fpa-handbook
 - https://wiki.acme/finance/revenue-recognition
 - https://wiki.acme/finance/cost-allocation
-```
+````
 
-### v0.2 Form
+## A.2 v0.3 Form
 
 The two figures split into attested computations linked from a narrative
 concept. Every family is populated, and the two computations sit in
@@ -1422,7 +1462,7 @@ attestable computation; this concept only narrates them.
 `computations/revenue.md`, BigQuery SQL, human-verified, fresh, and
 corroborated by a live dashboard source carrying credibility signals:
 
-```markdown
+````markdown
 ---
 type: Attested Computation
 title: Revenue for fiscal year
@@ -1468,12 +1508,12 @@ the executive revenue dashboard.[^exec-rev-dash]
 
 [^rev-policy]: Revenue recognition policy
 [^exec-rev-dash]: Executive revenue dashboard
-```
+````
 
 `computations/profit.md`, a dbt model, process-verified, and past its
 `stale_after`:
 
-```markdown
+````markdown
 ---
 type: Attested Computation
 title: Gross profit for fiscal year
@@ -1510,4 +1550,4 @@ WHERE fiscal_year = {{ var('year') }}
 Gross profit by segment per the cost-allocation standard.[^cost-alloc]
 
 [^cost-alloc]: Cost allocation standard
-```
+````

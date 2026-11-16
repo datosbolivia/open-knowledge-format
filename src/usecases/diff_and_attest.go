@@ -407,12 +407,15 @@ func extractSanctionedComputation(markdown string, baseDir string) string {
 		var fm map[string]interface{}
 		if err := yaml.Unmarshal([]byte(parts[1]), &fm); err == nil {
 			if compPath, ok := fm["computation"].(string); ok && strings.TrimSpace(compPath) != "" {
-				cleanRel := filepath.Clean(strings.TrimSpace(compPath))
-				// SEC-01 Path containment: reject absolute paths or path traversal sequences (..)
-				if !filepath.IsAbs(cleanRel) && !strings.HasPrefix(cleanRel, "..") && !strings.Contains(cleanRel, "../") {
-					fullP := filepath.Join(baseDir, cleanRel)
-					if b, err := os.ReadFile(fullP); err == nil {
-						return string(b)
+				cleanRel := filepath.Clean(filepath.FromSlash(strings.TrimSpace(compPath)))
+				// OE7 Path containment: allow relative paths (including ..) when contained inside bundle root
+				if !filepath.IsAbs(cleanRel) {
+					bundleRoot := domain.ResolveBundleRoot(filepath.Join(baseDir, "concept.md"))
+					fullP := filepath.Clean(filepath.Join(baseDir, cleanRel))
+					if domain.IsPathWithinRoot(bundleRoot, fullP) {
+						if b, err := os.ReadFile(fullP); err == nil {
+							return string(b)
+						}
 					}
 				}
 			}

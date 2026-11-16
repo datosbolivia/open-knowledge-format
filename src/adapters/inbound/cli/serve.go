@@ -39,7 +39,7 @@ func StartDataMeshServer(
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "ok",
 			"service": "datamesh-server",
-			"version": "0.3.0-dev.1",
+			"version": "0.3.0-dev.2",
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
 	})

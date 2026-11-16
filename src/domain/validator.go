@@ -58,7 +58,7 @@ func (r *ValidationReport) AddIssue(code string, sev Severity, msg string, path 
 
 var (
 	sha256Regex       = regexp.MustCompile(`^sha256:[a-fA-F0-9]{64}$`)
-	triadRegex        = regexp.MustCompile(`^([a-zA-Z0-9_\-\.]+[:/][a-zA-Z0-9_\-\. ]+([:/][a-zA-Z0-9_\-\. ]+)?|[a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+|okf://[a-zA-Z0-9_\-\./]+|datamesh://[a-zA-Z0-9_\-\./]+)(#[a-zA-Z0-9_\-\./]+)?$`)
+	triadRegex        = regexp.MustCompile(`^([a-zA-Z0-9_\-\.]+[:/][a-zA-Z0-9_\-\. ]+([:/][a-zA-Z0-9_\-\. ]+)?|(?:"[^"]+"|[a-zA-Z0-9_\-\.]+)\.[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+|(?:okf|odkf|datamesh)://[a-zA-Z0-9_\-\./]+|https?://[^\s#]+)(#[a-zA-Z0-9_\-\./]+)?$`)
 	actorRegex        = regexp.MustCompile(`^([^<]+<[^>]+@[\w\.-]+>|https?://[^\s]+|[a-zA-Z0-9_\-\.]+/[a-zA-Z0-9_\-\.]+|(agent|user|process|human|team):[a-zA-Z0-9_\-\.@/]+)$`)
 	isoDurationRegex  = regexp.MustCompile(`^P(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+S)?)?$`)
 	markdownLinkRegex = regexp.MustCompile(`\[[^\]]*\]\(([^)]+\.md)\)`)
@@ -255,6 +255,86 @@ func parseFlexibleTimestamp(ts string) bool {
 	return false
 }
 
+// ResolveBundleRoot walks upward from startPath to find the enclosing OKF bundle root
+// (marked by index.md, okf.yaml, or .git), falling back to the directory of startPath.
+func ResolveBundleRoot(startPath string) string {
+	absPath, err := filepath.Abs(startPath)
+	if err != nil {
+		absPath = filepath.Clean(startPath)
+	}
+	dir := absPath
+	if info, statErr := os.Stat(absPath); statErr != nil || !info.IsDir() {
+		dir = filepath.Dir(absPath)
+	}
+
+	curr := dir
+	gitFallback := ""
+	for depth := 0; depth < 6; depth++ {
+		if _, err := os.Stat(filepath.Join(curr, "index.md")); err == nil {
+			return curr
+		}
+		if _, err := os.Stat(filepath.Join(curr, "okf.yaml")); err == nil {
+			return curr
+		}
+		if gitFallback == "" {
+			if _, err := os.Stat(filepath.Join(curr, ".git")); err == nil {
+				gitFallback = curr
+			}
+		}
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break
+		}
+		curr = parent
+	}
+	if gitFallback != "" {
+		return gitFallback
+	}
+	return dir
+}
+
+// IsPathWithinRoot verifies that targetPath stays lexically and (when present) physically
+// through symlinks inside rootDir.
+func IsPathWithinRoot(rootDir string, targetPath string) bool {
+	absRoot, err1 := filepath.Abs(rootDir)
+	absTarget, err2 := filepath.Abs(targetPath)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	rel, relErr := filepath.Rel(absRoot, absTarget)
+	if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return false
+	}
+	if evalTarget, err := filepath.EvalSymlinks(absTarget); err == nil {
+		evalRoot := absRoot
+		if r, errR := filepath.EvalSymlinks(absRoot); errR == nil {
+			evalRoot = r
+		}
+		evalRel, evalRelErr := filepath.Rel(evalRoot, evalTarget)
+		if evalRelErr != nil || evalRel == ".." || strings.HasPrefix(evalRel, ".."+string(filepath.Separator)) || filepath.IsAbs(evalRel) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateLocalPathContainment(targetRef string, filePath string, report *ValidationReport, missingCode string, label string) {
+	if filepath.IsAbs(targetRef) {
+		report.AddIssue("OE7-PATH-TRAVERSAL", SeverityError, fmt.Sprintf("%s '%s' uses an absolute path outside bundle root", label, targetRef), filePath, 1)
+		return
+	}
+	baseDir := filepath.Dir(filePath)
+	bundleRoot := ResolveBundleRoot(filePath)
+	targetFile := filepath.Clean(filepath.Join(baseDir, filepath.FromSlash(targetRef)))
+	if !IsPathWithinRoot(bundleRoot, targetFile) {
+		report.AddIssue("OE7-PATH-TRAVERSAL", SeverityError, fmt.Sprintf("%s '%s' escapes bundle root '%s'", label, targetRef, bundleRoot), filePath, 1)
+		return
+	}
+	if _, err := os.Stat(targetFile); os.IsNotExist(err) {
+		report.AddIssue(missingCode, SeverityWarning, fmt.Sprintf("%s '%s' not found at '%s'", label, targetRef, targetFile), filePath, 1)
+	}
+}
+
 // ValidateConceptContent validates an in-memory concept string against OKF/ODKF rules.
 func ValidateConceptContent(content string, filePath string) *ValidationReport {
 	report := &ValidationReport{
@@ -317,6 +397,10 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 			report.AddIssue("PE4-CONTRACT-UNKNOWN", SeverityInfo, fmt.Sprintf("Contract[%d] uses custom/extensible specification type '%s'", idx, c.Type), filePath, 1)
 		}
 
+		if strings.HasPrefix(strings.TrimSpace(c.Path), "http://") || strings.HasPrefix(strings.TrimSpace(c.Path), "https://") {
+			report.AddIssue("PE4-REMOTE-IN-PATH", SeverityWarning, fmt.Sprintf("Contract[%d] places remote URL '%s' in 'path'; use 'ref' for remote HTTP/HTTPS URIs", idx, c.Path), filePath, 1)
+		}
+
 		targetRef := strings.TrimSpace(c.Path)
 		if targetRef == "" {
 			targetRef = strings.TrimSpace(c.Ref)
@@ -324,11 +408,7 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 		if targetRef == "" && len(c.Inline) == 0 && strings.TrimSpace(c.Binary) == "" && len(c.Inputs) == 0 {
 			report.AddIssue("PE4-CONTRACT-PATH", SeverityError, fmt.Sprintf("Contract[%d] must specify 'path', 'ref', 'inline', or 'binary'", idx), filePath, 1)
 		} else if targetRef != "" && !strings.HasPrefix(targetRef, "http://") && !strings.HasPrefix(targetRef, "https://") && filePath != "" {
-			baseDir := filepath.Dir(filePath)
-			targetFile := filepath.Join(baseDir, targetRef)
-			if _, err := os.Stat(targetFile); os.IsNotExist(err) {
-				report.AddIssue("PE4-CONTRACT-LOCAL-NOT-FOUND", SeverityWarning, fmt.Sprintf("Local contract path '%s' not found at '%s'", targetRef, targetFile), filePath, 1)
-			}
+			validateLocalPathContainment(targetRef, filePath, report, "PE4-CONTRACT-LOCAL-NOT-FOUND", "Local contract path")
 		}
 	}
 
@@ -371,11 +451,7 @@ func ValidateConceptContent(content string, filePath string) *ValidationReport {
 			report.AddIssue("RULE-06-POLICY-EMPTY", SeverityError, fmt.Sprintf("%s must define 'type', 'profile', 'path', 'ref', 'rules', or 'inline'", label), filePath, 1)
 		}
 		if targetRef != "" && !strings.HasPrefix(targetRef, "http://") && !strings.HasPrefix(targetRef, "https://") && filePath != "" {
-			baseDir := filepath.Dir(filePath)
-			targetFile := filepath.Join(baseDir, targetRef)
-			if _, err := os.Stat(targetFile); os.IsNotExist(err) {
-				report.AddIssue("RULE-06-POLICY-LOCAL-NOT-FOUND", SeverityWarning, fmt.Sprintf("Local policy path '%s' not found at '%s'", targetRef, targetFile), filePath, 1)
-			}
+			validateLocalPathContainment(targetRef, filePath, report, "RULE-06-POLICY-LOCAL-NOT-FOUND", "Local policy path")
 		}
 	}
 
@@ -486,7 +562,7 @@ func ValidateTriad(triad string) *ValidationReport {
 		Issues: make([]ValidationIssue, 0),
 	}
 
-	clean := strings.Trim(strings.TrimSpace(triad), `"'`)
+	clean := unwrapOuterQuotes(triad)
 	if !triadRegex.MatchString(clean) {
 		report.AddIssue("RULE-08-TRIAD-SYNTAX", SeverityError, fmt.Sprintf("Triad '%s' does not match canonical pattern 'catalog:dataset:resource' or 'catalog/dataset/resource'", clean), "", 0)
 	}

@@ -2,7 +2,7 @@
 
 * **Target Implementation:** Downstream Client Engines & SDKs (`datamesh-sdk`)
 * **Reference Implementation:** Embedded SQLite State Store
-* **Status:** Informational Architecture Specification
+* **Status:** Normative Profile Specification (Referenced by SPEC.md §18.2)
 
 ---
 
@@ -12,7 +12,7 @@ An OKF client runtime MUST maintain a strict boundary between declarative human 
 
 1. **Declarative User Configuration (`okf.yaml` / `trust.yaml`):**
    - Explicit human intents, including catalog seed URLs, network timeouts, local workspace roots, query engine preferences (`duckdb`, `inmem`), and *Root Trust Anchors* (cryptographic author allowlists, OpenSSH public key fingerprints, verification policies `strict` vs `permissive`), MUST reside in human-readable, version-controlled YAML/JSON text files.
-   - Deleting or rebuilding operational state MUST NEVER alter human configuration files.
+   - Deleting or rebuilding operational state MUST NOT alter human configuration files.
 2. **Operational State & Persistent Lineage:**
    - Client runtimes manage local caching and execution lineage via an embedded SQLite database (`$OKF_HOME/metadata.db` or `.okf/metadata.db`).
    - **Architectural Boundary:** Runtimes MUST distinguish between:
@@ -45,7 +45,7 @@ CREATE INDEX IF NOT EXISTS idx_cache_path ON cache_entries(local_path);
 CREATE TABLE IF NOT EXISTS dns_cache (
     host_or_triad TEXT PRIMARY KEY,
     resolved_endpoint TEXT NOT NULL,
-    capabilities_json TEXT,         -- JSON payload from /.well-known/datamesh.json
+    capabilities_json TEXT,         -- JSON payload from /.well-known/okf.json (fallback /.well-known/datamesh.json)
     auth_type TEXT DEFAULT 'none',  -- 'keycloak', 'api_key', 'none'
     probe_status TEXT NOT NULL,     -- 'ACTIVE', 'UNREACHABLE', 'DEGRADED'
     latency_ms INTEGER,
@@ -127,8 +127,8 @@ CREATE INDEX IF NOT EXISTS idx_art_cache ON artifacts(cache_key);
 
 ## 3. Mandatory Connection Invariants & Concurrency Rules
 
-1. **Foreign Key Enforcement:** Runtimes MUST execute `PRAGMA foreign_keys = ON;` on every SQLite database connection to ensure cascading deletes and referential integrity between `executions` and `lineage_sources`.
-2. **Concurrency (WAL Mode):** Runtimes MUST initialize SQLite connections with `PRAGMA journal_mode = WAL;`, `PRAGMA synchronous = NORMAL;`, and a busy timeout (`PRAGMA busy_timeout = 5000;`) to prevent database lock contention across concurrent CLI commands, background agent processes, and interactive notebooks.
-3. **Migration Strategy:** Runtimes MUST maintain schema versioning using `PRAGMA user_version` and apply incremental, non-destructive migrations on startup.
+1. **Per-Connection Pragmas (Foreign Keys & Busy Timeout):** Runtimes MUST execute `PRAGMA foreign_keys = ON;` and `PRAGMA busy_timeout = 5000;` on every SQLite database connection instantiation to guarantee cascading deletes, referential integrity between `executions` and `lineage_sources`, and lock-contention backoff across concurrent CLI commands, background agent processes, and interactive notebooks.
+2. **Initialization & Concurrency Mode:** Runtimes MUST configure `PRAGMA journal_mode = WAL;` and `PRAGMA synchronous = NORMAL;` during database initialization (`_init_db`) so WAL persistence survives across connections.
+3. **Migration Strategy:** Runtimes MUST maintain schema versioning using `PRAGMA user_version` (setting `PRAGMA user_version = 1;` during initial schema creation) and apply incremental, non-destructive migrations on startup when `user_version` is older than the target schema version.
 4. **LRU Cache Eviction:** When local cached resources exceed configured capacity thresholds, runtimes evict files ordered by `last_accessed ASC`.
 5. **Conditional HTTP 304 Revalidation:** For stale cache entries (`now > cached_at + ttl_seconds`), clients issue conditional HTTP requests with `If-None-Match: <etag>`. Upon receiving `304 Not Modified`, `last_accessed` is updated without re-downloading bytes.

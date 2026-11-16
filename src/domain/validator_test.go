@@ -371,3 +371,78 @@ policies:
 		t.Fatalf("expected meta-specification concept to be valid (0 errors), got issues: %+v", rep.Issues)
 	}
 }
+
+func TestParseTriad_QuotedReverseDNS_And_OE7_PE4(t *testing.T) {
+	tr, err := ParseTriad(`"censo.2024".votos@bolivia#seccion.csv`)
+	if err != nil {
+		t.Fatalf("ParseTriad quoted reverse-DNS failed: %v", err)
+	}
+	if tr.Catalog != "bolivia" || tr.Dataset != "censo.2024" || tr.Resource != "votos" || tr.Fragment != "seccion.csv" {
+		t.Fatalf("unexpected quoted triad fields: %+v", tr)
+	}
+	if got := tr.SovereignDNS(); got != `"censo.2024".votos@bolivia#seccion.csv` {
+		t.Errorf("SovereignDNS() = %q, want %q", got, `"censo.2024".votos@bolivia#seccion.csv`)
+	}
+
+	sqlTriads := ExtractTriadsFromSQL(`SELECT * FROM '"censo.2024".votos@bolivia#seccion.csv'`)
+	if len(sqlTriads) != 1 || sqlTriads[0].Dataset != "censo.2024" || sqlTriads[0].Catalog != "bolivia" {
+		t.Errorf("ExtractTriadsFromSQL failed on quoted reverse-DNS: %+v", sqlTriads)
+	}
+
+	for _, validRef := range []string{
+		`"censo.2024".votos@bolivia#seccion.csv`,
+		`odkf://bolivia/censo_2024/votos#seccion.csv`,
+		`https://example.org/datasets/censo/votos.csv`,
+	} {
+		if rep := ValidateTriad(validRef); !rep.Valid {
+			t.Errorf("ValidateTriad(%q) unexpectedly failed: %+v", validRef, rep.Issues)
+		}
+	}
+
+	tmpBundle := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpBundle, "index.md"), []byte("# Root\n"), 0644)
+	conceptDir := filepath.Join(tmpBundle, "metrics")
+	_ = os.MkdirAll(conceptDir, 0755)
+	conceptPath := filepath.Join(conceptDir, "rev.md")
+
+	remoteInPathContent := `---
+type: dataset
+title: Remote URL in path
+contracts:
+  - type: openapi
+    path: https://api.gob.bo/v3/api-docs
+---
+`
+	repRemote := ValidateConceptContent(remoteInPathContent, conceptPath)
+	hasRemoteWarn := false
+	for _, iss := range repRemote.Issues {
+		if iss.Code == "PE4-REMOTE-IN-PATH" && iss.Severity == SeverityWarning {
+			hasRemoteWarn = true
+		}
+	}
+	if !hasRemoteWarn {
+		t.Errorf("expected PE4-REMOTE-IN-PATH warning, got: %+v", repRemote.Issues)
+	}
+
+	traversalContent := `---
+type: dataset
+title: Traversal test
+contracts:
+  - type: datapackage
+    path: ../../../etc/passwd
+---
+`
+	repTrav := ValidateConceptContent(traversalContent, conceptPath)
+	if repTrav.Valid {
+		t.Fatalf("expected OE7-PATH-TRAVERSAL error for escaping path, got valid")
+	}
+	hasTravErr := false
+	for _, iss := range repTrav.Issues {
+		if iss.Code == "OE7-PATH-TRAVERSAL" && iss.Severity == SeverityError {
+			hasTravErr = true
+		}
+	}
+	if !hasTravErr {
+		t.Errorf("expected OE7-PATH-TRAVERSAL error, got: %+v", repTrav.Issues)
+	}
+}

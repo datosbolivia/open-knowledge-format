@@ -406,8 +406,15 @@ func (uc *SemanticAlignmentUseCase) GenerateCrossDatasetJoinSQL(
 	}
 
 	for _, corr := range correspondences {
+		if corr.MatchPredicate == "skos:closeMatch" {
+			continue
+		}
 		srcProjected.ValueMapping[corr.SourceValue] = corr.SharedAnchorURI
 		tgtProjected.ValueMapping[corr.TargetValue] = corr.SharedAnchorURI
+	}
+
+	if len(srcProjected.ValueMapping) == 0 || len(tgtProjected.ValueMapping) == 0 {
+		return ""
 	}
 
 	leftSQL := uc.GenerateCaseExpression(srcProjected, sourceAlias)

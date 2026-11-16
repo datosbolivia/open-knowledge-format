@@ -14,8 +14,8 @@ import (
 
 var (
 	entryRegex      = regexp.MustCompile(`^-\s*\[([^\]]+)\]\(([^)\s]+)\)(?:\s*(?::|-|—)\s*(.*))?$`)
-	domainRegex     = regexp.MustCompile(`\(Dominio:\s*([^)]*?)(?:\.|\)|Recursos:)`)
-	recRegex        = regexp.MustCompile(`Recursos:\s*([^)]+)\)`)
+	domainRegex     = regexp.MustCompile(`\((?:Dominio|Domain):\s*([^)]*?)(?:\.|\)|(?:Recursos|Resources):)`)
+	recRegex        = regexp.MustCompile(`(?:Recursos|Resources):\s*([^)]+)\)`)
 	reqHeaderRegex  = regexp.MustCompile(`^###\s*\[(.*?)\]\s*(.*?)(?:\s*\((?:Institución|Agencia):\s*([^)]+)\))?$`)
 	bulletItemRegex = regexp.MustCompile(`^\s*[*+-]\s*\[(.*?)\]\s*(.*)`)
 )
@@ -139,7 +139,7 @@ func (p *LLMSTxtParser) ParseCatalog(data []byte, sourceURL string) (*domain.Cat
 							titleClean = strings.TrimSpace(rest[:idx])
 							metaClean = strings.TrimSpace(rest[idx+1:])
 							metaClean = strings.TrimSuffix(metaClean, ")")
-						} else if idx := strings.Index(rest, "(Dominio:"); idx != -1 {
+						} else if idx := firstMetaMarkerIndex(rest, "(Dominio:", "(Domain:"); idx != -1 {
 							titleClean = strings.TrimSpace(rest[:idx])
 							metaClean = strings.TrimSpace(rest[idx+1:])
 							metaClean = strings.TrimSuffix(metaClean, ")")
@@ -194,7 +194,7 @@ func (p *LLMSTxtParser) ParseCatalog(data []byte, sourceURL string) (*domain.Cat
 
 			// Clean description
 			cleanDesc := descText
-			if idx := strings.Index(cleanDesc, "(Dominio:"); idx != -1 {
+			if idx := firstMetaMarkerIndex(cleanDesc, "(Dominio:", "(Domain:"); idx != -1 {
 				cleanDesc = strings.TrimSpace(cleanDesc[:idx])
 			}
 
@@ -221,4 +221,14 @@ func resolveURL(base *url.URL, ref string) string {
 		return ref
 	}
 	return base.ResolveReference(refURL).String()
+}
+
+func firstMetaMarkerIndex(s string, markers ...string) int {
+	earliest := -1
+	for _, m := range markers {
+		if idx := strings.Index(s, m); idx != -1 && (earliest == -1 || idx < earliest) {
+			earliest = idx
+		}
+	}
+	return earliest
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/datosbolivia/open-knowledge-format/src/usecases"
 )
 
-const version = "0.3.0-dev.1"
+const version = "0.3.0-dev.2"
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Open Knowledge Format (OKF) Engine & CLI - v%s\n"+

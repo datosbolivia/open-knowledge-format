@@ -2,6 +2,9 @@ package usecases
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/datosbolivia/open-knowledge-format/src/domain"
@@ -168,5 +171,70 @@ func TestDiffAndAttestUseCases(t *testing.T) {
 	tampered, _ := AttestComputation("../../bundles/acme_retail/computations/revenue-ytd.md", "SELECT 999999 AS revenue_usd", map[string]string{"year": "2026"})
 	if tampered.Verdict != "refuted" {
 		t.Errorf("expected refuted verdict for tampered SQL, got %+v", tampered)
+	}
+}
+
+func TestGenerateCrossDatasetJoinSQL_ExcludesCloseMatchAndFailsFast(t *testing.T) {
+	uc := NewSemanticAlignmentUseCase()
+	srcMap := domain.SemanticFieldMapping{
+		FieldName: "tipo",
+		ValueLabels: []domain.ValueLabelConceptEntry{
+			{RawValue: "A", ConceptID: "ds1:concepts/a.md"},
+			{RawValue: "C", ConceptID: "ds1:concepts/c.md"},
+		},
+	}
+	tgtMap := domain.SemanticFieldMapping{
+		FieldName: "tipo",
+		ValueLabels: []domain.ValueLabelConceptEntry{
+			{RawValue: "B", ConceptID: "ds2:concepts/b.md"},
+			{RawValue: "D", ConceptID: "ds2:concepts/d.md"},
+		},
+	}
+	catalog := map[string]domain.ConceptNodeSKOS{
+		"ds1:concepts/a.md": {ConceptID: "ds1:concepts/a.md", CloseMatch: []string{"http://www.wikidata.org/entity/Q999"}},
+		"ds2:concepts/b.md": {ConceptID: "ds2:concepts/b.md", ExactMatch: []string{"http://www.wikidata.org/entity/Q999"}},
+		"ds1:concepts/c.md": {ConceptID: "ds1:concepts/c.md", ExactMatch: []string{"http://www.wikidata.org/entity/Q100"}},
+		"ds2:concepts/d.md": {ConceptID: "ds2:concepts/d.md", ExactMatch: []string{"http://www.wikidata.org/entity/Q100"}},
+	}
+	joinSQL := uc.GenerateCrossDatasetJoinSQL(srcMap, "a", tgtMap, "b", catalog)
+	if strings.Contains(joinSQL, "'A'") || !strings.Contains(joinSQL, "'C'") {
+		t.Errorf("expected skos:closeMatch pair (A, B) excluded and exact pair (C, D) kept, got: %s", joinSQL)
+	}
+
+	onlyCloseCatalog := map[string]domain.ConceptNodeSKOS{
+		"ds1:concepts/a.md": {ConceptID: "ds1:concepts/a.md", CloseMatch: []string{"http://www.wikidata.org/entity/Q999"}},
+		"ds2:concepts/b.md": {ConceptID: "ds2:concepts/b.md", ExactMatch: []string{"http://www.wikidata.org/entity/Q999"}},
+	}
+	emptySQL := uc.GenerateCrossDatasetJoinSQL(
+		domain.SemanticFieldMapping{FieldName: "tipo", ValueLabels: []domain.ValueLabelConceptEntry{{RawValue: "A", ConceptID: "ds1:concepts/a.md"}}},
+		"a",
+		domain.SemanticFieldMapping{FieldName: "tipo", ValueLabels: []domain.ValueLabelConceptEntry{{RawValue: "B", ConceptID: "ds2:concepts/b.md"}}},
+		"b",
+		onlyCloseCatalog,
+	)
+	if emptySQL != "" {
+		t.Errorf("expected empty join SQL when only closeMatch correspondences exist, got: %s", emptySQL)
+	}
+}
+
+func TestAttestComputation_BundleContainedRelativePath(t *testing.T) {
+	bundleDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(bundleDir, "index.md"), []byte("# Bundle\n"), 0644)
+	metricsDir := filepath.Join(bundleDir, "metrics")
+	compDir := filepath.Join(bundleDir, "computations")
+	_ = os.MkdirAll(metricsDir, 0755)
+	_ = os.MkdirAll(compDir, 0755)
+
+	_ = os.WriteFile(filepath.Join(compDir, "revenue.sql"), []byte("SELECT SUM(amount) FROM sales WHERE yr = @year\n"), 0644)
+	conceptMD := "---\ntype: Attested Computation\ntitle: Rev\nruntime: bigquery\ncomputation: ../computations/revenue.sql\nparameters:\n  - { name: year, type: integer }\n---\n"
+	conceptPath := filepath.Join(metricsDir, "rev.md")
+	_ = os.WriteFile(conceptPath, []byte(conceptMD), 0644)
+
+	verdict, err := AttestComputation(conceptPath, "SELECT SUM(amount) FROM sales WHERE yr = 2026", map[string]string{"year": "2026"})
+	if err != nil {
+		t.Fatalf("AttestComputation failed: %v", err)
+	}
+	if verdict.Verdict != "verified" {
+		t.Errorf("expected verified verdict for bundle-internal ../computations/revenue.sql, got %+v", verdict)
 	}
 }

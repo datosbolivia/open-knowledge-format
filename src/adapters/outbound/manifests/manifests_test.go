@@ -565,3 +565,29 @@ paths:
 		t.Errorf("expected OpenAPI array items x-okf-concept in Description, got: %s", dp.Description)
 	}
 }
+
+func TestLLMSTxtParserBilingualEnglishMetadata(t *testing.T) {
+	llmsContent := `# National Open Data Catalog
+> Official sovereign catalog
+
+- [National Census 2024](/raw/nodes/censo/index.md): Official census results. (Domain: Demography. Resources: population_2024, housing_2024)
+`
+	parser := NewLLMSTxtParser()
+	cat, err := parser.ParseCatalog([]byte(llmsContent), "https://example.org/llms.txt")
+	if err != nil {
+		t.Fatalf("ParseCatalog failed: %v", err)
+	}
+	if len(cat.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(cat.Entries))
+	}
+	e := cat.Entries[0]
+	if e.Domain != "Demography" {
+		t.Errorf("Domain = %q, want Demography", e.Domain)
+	}
+	if len(e.Resources) != 2 || e.Resources[0] != "population_2024" || e.Resources[1] != "housing_2024" {
+		t.Errorf("Resources = %+v, want [population_2024 housing_2024]", e.Resources)
+	}
+	if e.Description != "Official census results." {
+		t.Errorf("Description = %q, want %q", e.Description, "Official census results.")
+	}
+}
